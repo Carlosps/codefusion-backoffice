@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Code Fusion Support Backoffice</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand-block">
+          <p class="eyebrow">Code Fusion</p>
+          <h1>Support Backoffice</h1>
+        </div>
+
+        <div class="session-bar">
+          <div id="auth-identity" class="auth-identity hidden">
+            <strong id="auth-identity-name">Operador</strong>
+            <span id="auth-identity-email"></span>
+          </div>
+          <button id="logout-button" class="button button-secondary hidden" type="button">
+            Sair
+          </button>
+        </div>
+      </header>
+
+      <main class="dashboard">
+        <section id="setup-warning" class="panel setup-panel hidden">
+          <h2>Configuração pendente</h2>
+          <p id="setup-warning-message">
+            Crie o arquivo <code>web/config.js</code> a partir de
+            <code>web/config.example.js</code> para conectar esta interface ao seu projeto
+            Firebase.
+          </p>
+        </section>
+
+        <section id="auth-panel" class="panel auth-panel">
+          <div class="auth-card">
+            <p class="eyebrow" id="auth-panel-eyebrow">Acesso</p>
+            <h2 id="auth-panel-title">Acessar backoffice</h2>
+            <p id="auth-panel-description" class="auth-card-text">
+              Entre com a conta Google autorizada para continuar.
+            </p>
+            <button id="login-button" class="button button-google" type="button">
+              <span class="google-mark" aria-hidden="true">
+                <svg viewBox="0 0 18 18" focusable="false">
+                  <path
+                    fill="#4285F4"
+                    d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.71-1.57 2.68-3.9 2.68-6.62Z"
+                  />
+                  <path
+                    fill="#34A853"
+                    d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.81.54-1.84.86-3.04.86-2.34 0-4.33-1.58-5.04-3.7H.96v2.33A9 9 0 0 0 9 18Z"
+                  />
+                  <path
+                    fill="#FBBC05"
+                    d="M3.96 10.72A5.41 5.41 0 0 1 3.68 9c0-.6.1-1.19.28-1.72V4.95H.96A9 9 0 0 0 0 9c0 1.45.35 2.82.96 4.05l3-2.33Z"
+                  />
+                  <path
+                    fill="#EA4335"
+                    d="M9 3.58c1.32 0 2.5.45 3.44 1.33l2.58-2.58C13.46.9 11.43 0 9 0A9 9 0 0 0 .96 4.95l3 2.33c.71-2.12 2.7-3.7 5.04-3.7Z"
+                  />
+                </svg>
+              </span>
+              <span>Entrar com Google</span>
+            </button>
+            <div id="auth-feedback" class="feedback"></div>
+          </div>
+        </section>
+
+        <section id="revenuecat-panel" class="panel hidden">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">RevenueCat</p>
+              <h2>Consultar cliente</h2>
+              <p class="section-copy">
+                Informe o <strong>App User ID</strong> para localizar o cliente e ver os detalhes
+                de acesso.
+              </p>
+            </div>
+            <button
+              id="reload-history-button"
+              class="button button-secondary hidden"
+              type="button"
+            >
+              Atualizar busca
+            </button>
+          </div>
+
+          <div id="revenuecat-config-summary" class="info-banner hidden"></div>
+
+          <form id="revenuecat-form" class="lookup-form">
+            <label class="field grow">
+              <span>App User ID</span>
+              <input
+                id="revenuecat-app-user-id"
+                name="appUserId"
+                type="text"
+                placeholder="Ex.: user_123"
+                required
+              />
+            </label>
+            <button class="button button-primary" type="submit">Consultar cliente</button>
+          </form>
+
+          <div id="revenuecat-feedback" class="feedback"></div>
+
+          <div id="revenuecat-results" class="results-stack hidden"></div>
+        </section>
+      </main>
+    </div>
+
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
+    <script src="./config.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>

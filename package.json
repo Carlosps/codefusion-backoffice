@@ -1,0 +1,9 @@
+{
+  "name": "codefusion-backoffice",
+  "private": true,
+  "scripts": {
+    "check": "node --check web/app.js && node --check functions/index.js && node --test functions/test/*.test.js",
+    "serve": "node scripts/serve.js",
+    "deploy": "firebase deploy --project code-fusion-backoffice --only hosting,functions,firestore"
+  }
+}
