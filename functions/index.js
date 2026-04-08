@@ -29,6 +29,7 @@ const {
   grantRevenueCatPromotionalAccess,
 } = require("./src/revenuecat");
 const { getTargetFirestoreDb } = require("./src/targetFirestore");
+const { getTargetFirestoreConfig } = require("./src/targetFirestore");
 const {
   validateAppUserId,
   validateAuditLimit,
@@ -40,6 +41,77 @@ const {
 initializeApp();
 
 const REGION = "southamerica-east1";
+
+function serializeFirestoreValue(value) {
+  if (value === null || value === undefined) {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(serializeFirestoreValue);
+  }
+
+  if (typeof value === "object") {
+    if (typeof value.toDate === "function") {
+      try {
+        return value.toDate().toISOString();
+      } catch (error) {
+        return null;
+      }
+    }
+
+    if (
+      typeof value.latitude === "number" &&
+      typeof value.longitude === "number" &&
+      Object.keys(value).length <= 2
+    ) {
+      return { latitude: value.latitude, longitude: value.longitude };
+    }
+
+    if (typeof value.path === "string" && typeof value.id === "string") {
+      return { path: value.path, id: value.id };
+    }
+
+    const output = {};
+    for (const [key, child] of Object.entries(value)) {
+      output[key] = serializeFirestoreValue(child);
+    }
+    return output;
+  }
+
+  return value;
+}
+
+async function getRifa(req, res, rifaId) {
+  await requireUser(req);
+
+  const normalizedId = String(rifaId || "").trim();
+  if (!normalizedId) {
+    throw new HttpError(400, "Informe o Rifa ID.");
+  }
+
+  const targetConfig = getTargetFirestoreConfig();
+  const db = getTargetFirestoreDb();
+  const snapshot = await db.collection("raffles").doc(normalizedId).get();
+  if (!snapshot.exists) {
+    throw new HttpError(404, "Rifa nao encontrada.", {
+      targetProjectId: targetConfig.projectId || null,
+      collection: "raffles",
+      documentId: normalizedId,
+      targetFirestoreDisableEmulator: targetConfig.disableEmulator,
+    });
+  }
+
+  sendJson(res, 200, {
+    ok: true,
+    rifaId: normalizedId,
+    meta: {
+      targetProjectId: targetConfig.projectId || null,
+      targetFirestoreDisableEmulator: targetConfig.disableEmulator,
+    },
+    data: serializeFirestoreValue(snapshot.data() || {}),
+  });
+}
 
 async function getSession(req, res) {
   const actor = await requireUser(req);
@@ -463,6 +535,11 @@ exports.api = onRequest(
 
       if (req.method === "GET" && resource === "auth" && scope === "session") {
         await getSession(req, res);
+        return;
+      }
+
+      if (req.method === "GET" && resource === "rifa" && scope && !segments[2]) {
+        await getRifa(req, res, decodeURIComponent(scope));
         return;
       }
 

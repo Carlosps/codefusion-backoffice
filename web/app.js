@@ -6,6 +6,7 @@
     session: null,
     revenueCatProjects: [],
     revenueCatAppUserId: null,
+    rifa: null,
   };
 
   const PROJECT_VISUALS = {
@@ -43,6 +44,10 @@
     revenueCatFeedback: document.getElementById("revenuecat-feedback"),
     revenueCatResults: document.getElementById("revenuecat-results"),
     reloadHistoryButton: document.getElementById("reload-history-button"),
+    rifaForm: document.getElementById("rifa-form"),
+    rifaInput: document.getElementById("rifa-id"),
+    rifaFeedback: document.getElementById("rifa-feedback"),
+    rifaResults: document.getElementById("rifa-results"),
   };
 
   function showSetupWarning(message) {
@@ -423,6 +428,200 @@
     nodes.revenueCatResults.innerHTML = "";
     hideElement(nodes.revenueCatResults);
     nodes.reloadHistoryButton.classList.add("hidden");
+  }
+
+  function clearRifaResults() {
+    if (!nodes.rifaResults) {
+      return;
+    }
+    nodes.rifaResults.innerHTML = "";
+    hideElement(nodes.rifaResults);
+  }
+
+  function formatBoolean(value) {
+    if (value === true) {
+      return "Sim";
+    }
+    if (value === false) {
+      return "Não";
+    }
+    return "Não informado";
+  }
+
+  function formatNumber(value) {
+    if (value === null || value === undefined || value === "") {
+      return "Não informado";
+    }
+    const parsed = typeof value === "number" ? value : Number(value);
+    if (!Number.isFinite(parsed)) {
+      return String(value);
+    }
+    return new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 2 }).format(parsed);
+  }
+
+  function renderRifaPhoto(imageLinks) {
+    const first = Array.isArray(imageLinks) ? imageLinks.find(Boolean) : null;
+    if (!first || typeof first !== "string") {
+      return "";
+    }
+
+    return `
+      <span class="project-avatar project-avatar-large">
+        <img src="${escapeHtml(first)}" alt="Foto da rifa" />
+      </span>
+    `;
+  }
+
+  function flattenRifaData(data, prefix = "") {
+    const rows = [];
+    const excludedKeys = new Set([
+      "unlockPrice",
+      "unlocked",
+      "currentProfit",
+      "freeTrialActive",
+      "imageLinks",
+      "freeTrialExpiresAt",
+      "unlockedAt",
+      "unlockReason",
+      "reservedBuyers",
+      "buyers",
+    ]);
+
+    const input = data && typeof data === "object" ? data : {};
+    for (const [key, value] of Object.entries(input)) {
+      if (prefix === "" && excludedKeys.has(key)) {
+        continue;
+      }
+
+      const path = prefix ? `${prefix}.${key}` : key;
+      if (value && typeof value === "object" && !Array.isArray(value)) {
+        rows.push(...flattenRifaData(value, path));
+        continue;
+      }
+
+      rows.push({ key: path, value });
+    }
+
+    return rows;
+  }
+
+  function renderRifaResult(payload) {
+    if (!nodes.rifaResults) {
+      return;
+    }
+
+    const data = payload?.data ?? {};
+    state.rifa = {
+      rifaId: payload?.rifaId || null,
+      data,
+    };
+    const unlockPrice = data?.unlockPrice;
+    const unlocked = data?.unlocked;
+    const currentProfit = data?.currentProfit;
+    const freeTrialActive = data?.freeTrialActive;
+    const freeTrialExpiresAt = data?.freeTrialExpiresAt;
+    const unlockedAt = data?.unlockedAt;
+    const unlockReason = data?.unlockReason;
+    const reservedBuyersCount = Array.isArray(data?.reservedBuyers) ? data.reservedBuyers.length : null;
+    const buyersCount = Array.isArray(data?.buyers) ? data.buyers.length : null;
+    const imageLinks = data?.imageLinks;
+
+    const statusTone = unlocked === true ? "success" : unlocked === false ? "" : "";
+    const trialTone = freeTrialActive === true ? "success" : "";
+    const photo = renderRifaPhoto(imageLinks);
+    const toggleLabel = unlocked === true ? "Bloquear rifa" : "Desbloquear rifa";
+
+    const additionalRows = flattenRifaData(data).map((row) => ({
+      key: row.key,
+      value:
+        row.value === null || row.value === undefined
+          ? "—"
+          : typeof row.value === "string"
+            ? row.value
+            : JSON.stringify(row.value),
+    }));
+
+    nodes.rifaResults.innerHTML = `
+      <article class="customer-result">
+        <section class="summary-strip theme-royal">
+          <div class="summary-hero">
+            <div class="app-result-heading">
+              ${photo}
+              <div class="summary-hero-copy">
+                <div class="status-chip-row">
+                  <span class="status-chip ${unlocked === true ? "status-chip-success" : "status-chip-muted"}">
+                    ${escapeHtml(unlocked === true ? "Rifa desbloqueada" : unlocked === false ? "Rifa bloqueada" : "Status não informado")}
+                  </span>
+                  <button
+                    class="button button-secondary button-compact"
+                    type="button"
+                    data-rifa-action="toggle-lock"
+                  >
+                    ${escapeHtml(toggleLabel)}
+                  </button>
+                  <div class="inline-days">
+                    <input
+                      class="input-compact"
+                      type="number"
+                      inputmode="numeric"
+                      min="1"
+                      step="1"
+                      placeholder="Dias"
+                      aria-label="Dias grátis"
+                      data-rifa-days-input="1"
+                    />
+                    <button
+                      class="button button-secondary button-compact"
+                      type="button"
+                      data-rifa-action="add-free-days"
+                    >
+                      Adicionar dias grátis
+                    </button>
+                  </div>
+                </div>
+                <h3>Rifa</h3>
+                <p>
+                  ID <span class="mono">${escapeHtml(payload?.rifaId || "-")}</span>
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div class="summary-grid">
+            ${renderMetricCard("Unlock price", unlockPrice ?? "Não informado")}
+            ${renderMetricCard("Unlocked", formatBoolean(unlocked), "", statusTone)}
+            ${renderMetricCard("Current profit", formatNumber(currentProfit))}
+            ${renderMetricCard("Free trial ativo", formatBoolean(freeTrialActive), "", trialTone)}
+            ${renderMetricCard("Free trial expira", formatDate(freeTrialExpiresAt, "Não informado"))}
+            ${renderMetricCard("Unlocked at", formatDate(unlockedAt, "Não informado"))}
+            ${renderMetricCard("Unlock reason", unlockReason ?? "Não informado")}
+            ${renderMetricCard(
+              "Compradores",
+              buyersCount === null ? "Não informado" : String(buyersCount),
+              reservedBuyersCount === null ? "" : `Reservados: ${reservedBuyersCount}`,
+            )}
+          </div>
+        </section>
+
+        <section class="result-section result-section-wide">
+          <div class="section-heading compact">
+            <h3>Campos adicionais</h3>
+          </div>
+          ${
+            additionalRows.length
+              ? renderTable(
+                  [
+                    { label: "Campo", key: "key" },
+                    { label: "Valor", key: "value" },
+                  ],
+                  additionalRows,
+                )
+              : '<div class="empty-state">Nenhum campo adicional encontrado.</div>'
+          }
+        </section>
+      </article>
+    `;
+    showElement(nodes.rifaResults);
   }
 
   function getCurrentAccess(summary) {
@@ -972,6 +1171,65 @@
         await loadRevenueCat(nodes.revenueCatInput.value.trim());
       } catch (error) {
         setFeedback(nodes.revenueCatFeedback, error.message, "error");
+      }
+    });
+
+    nodes.rifaForm?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const value = nodes.rifaInput?.value?.trim();
+      if (!value) {
+        setFeedback(nodes.rifaFeedback, "Informe o Rifa ID.", "error");
+        return;
+      }
+
+      clearRifaResults();
+      state.rifa = null;
+      setFeedback(nodes.rifaFeedback, "Consultando rifa...", null);
+
+      try {
+        const payload = await apiRequest(`/rifa/${encodeURIComponent(value)}`);
+        renderRifaResult(payload);
+        setFeedback(nodes.rifaFeedback, "Consulta concluída com sucesso.", "success");
+      } catch (error) {
+        clearRifaResults();
+        setFeedback(nodes.rifaFeedback, error.message, "error");
+      }
+    });
+
+    nodes.rifaResults?.addEventListener("click", async (event) => {
+      const button = event.target.closest("[data-rifa-action]");
+      if (!button) {
+        return;
+      }
+
+      if (button.dataset.rifaAction === "toggle-lock") {
+        const rifaId = state.rifa?.rifaId;
+        const unlocked = state.rifa?.data?.unlocked;
+        const actionLabel = unlocked === true ? "bloquear" : "desbloquear";
+        setFeedback(
+          nodes.rifaFeedback,
+          `Ação de ${actionLabel} rifa ainda não implementada (Rifa ID: ${rifaId || "-"})`,
+          null,
+        );
+      }
+
+      if (button.dataset.rifaAction === "add-free-days") {
+        const rifaId = state.rifa?.rifaId;
+        const wrapper = button.closest(".status-chip-row") || nodes.rifaResults;
+        const input = wrapper?.querySelector("[data-rifa-days-input]");
+        const raw = input?.value?.trim();
+        const days = Number(raw);
+
+        if (!Number.isFinite(days) || !Number.isInteger(days) || days <= 0) {
+          setFeedback(nodes.rifaFeedback, "Informe um número válido de dias (ex.: 7).", "error");
+          return;
+        }
+
+        setFeedback(
+          nodes.rifaFeedback,
+          `Ação de adicionar ${days} dia(s) grátis ainda não implementada (Rifa ID: ${rifaId || "-"})`,
+          null,
+        );
       }
     });
 

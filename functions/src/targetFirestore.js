@@ -4,6 +4,7 @@ const { getFirestore } = require("firebase-admin/firestore");
 const { HttpError } = require("./errors");
 
 const TARGET_APP_NAME = "target-firestore";
+const PRODUCTION_FIRESTORE_HOST = "firestore.googleapis.com";
 
 function parseServiceAccountJson(value) {
   if (!value) {
@@ -30,6 +31,10 @@ function getTargetFirestoreConfig() {
   return {
     projectId: String(process.env.TARGET_FIRESTORE_PROJECT_ID || "").trim(),
     serviceAccount: parseServiceAccountJson(process.env.TARGET_FIRESTORE_SERVICE_ACCOUNT_JSON),
+    disableEmulator:
+      String(process.env.TARGET_FIRESTORE_DISABLE_EMULATOR || "")
+        .trim()
+        .toLowerCase() === "true",
   };
 }
 
@@ -66,7 +71,33 @@ function getTargetFirestoreApp() {
 }
 
 function getTargetFirestoreDb() {
-  return getFirestore(getTargetFirestoreApp());
+  const app = getTargetFirestoreApp();
+  const config = getTargetFirestoreConfig();
+
+  if (!config.disableEmulator) {
+    return getFirestore(app);
+  }
+
+  const savedEmulatorHost = process.env.FIRESTORE_EMULATOR_HOST;
+  const savedFirestoreHost = process.env.FIRESTORE_HOST;
+
+  try {
+    delete process.env.FIRESTORE_EMULATOR_HOST;
+    process.env.FIRESTORE_HOST = PRODUCTION_FIRESTORE_HOST;
+    return getFirestore(app);
+  } finally {
+    if (savedEmulatorHost) {
+      process.env.FIRESTORE_EMULATOR_HOST = savedEmulatorHost;
+    } else {
+      delete process.env.FIRESTORE_EMULATOR_HOST;
+    }
+
+    if (savedFirestoreHost) {
+      process.env.FIRESTORE_HOST = savedFirestoreHost;
+    } else {
+      delete process.env.FIRESTORE_HOST;
+    }
+  }
 }
 
 module.exports = {

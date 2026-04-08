@@ -1,6 +1,13 @@
 const { HttpError } = require("./errors");
 
-const API_RESOURCES = new Set(["health", "auth", "revenuecat", "firestore", "audit"]);
+const API_RESOURCES = new Set([
+  "health",
+  "auth",
+  "revenuecat",
+  "firestore",
+  "audit",
+  "rifa",
+]);
 
 function sendJson(res, status, payload) {
   res.status(status).json(payload);
