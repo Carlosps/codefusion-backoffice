@@ -18,6 +18,7 @@ const {
   getPathSegments,
   readJsonBody,
 } = require("./src/http");
+const { applyCors, handleCorsPreflight } = require("./src/cors");
 const { assertRateLimit } = require("./src/rateLimit");
 const {
   listRevenueCatProjects,
@@ -111,14 +112,39 @@ async function getRifa(req, res, rifaId) {
   } catch (error) {
     const code = error?.code || error?.status;
     if (code === 7 || code === "PERMISSION_DENIED" || String(code).includes("permission")) {
+      const serviceAccountEmail =
+        targetConfig?.serviceAccount?.client_email ||
+        targetConfig?.serviceAccount?.clientEmail ||
+        null;
+
+      const exposeDebugDetails =
+        String(process.env.EXPOSE_DEBUG_DETAILS || "")
+          .trim()
+          .toLowerCase() === "true";
+
+      logger.warn("Rifa lookup permission denied", {
+        rifaLookupProjectId: rifaLookup.projectId,
+        rifaLookupCollection: rifaLookup.collection,
+        rifaLookupMatchField: rifaLookup.matchField || null,
+        serviceAccountEmail,
+        code,
+      });
+
       throw new HttpError(
         403,
-        `Sem permissao para ler rifas no projeto ${rifaLookup.projectId}. No Google Cloud, abra esse projeto > IAM e conceda a service account do secret TARGET_FIRESTORE_SERVICE_ACCOUNT_JSON (ex.: ...@rifa-73864.iam.gserviceaccount.com) um papel com leitura no Firestore (ex.: Cloud Datastore User).`,
-        {
-          rifaLookupProjectId: rifaLookup.projectId,
-          rifaLookupCollection: rifaLookup.collection,
-          rifaLookupMatchField: rifaLookup.matchField || null,
-        },
+        `Sem permissao para ler rifas no projeto ${rifaLookup.projectId}. No Google Cloud, abra esse projeto > IAM e conceda a service account usada pela API um papel com acesso ao Firestore (ex.: Cloud Datastore User).`,
+        exposeDebugDetails
+          ? {
+              rifaLookupProjectId: rifaLookup.projectId,
+              rifaLookupCollection: rifaLookup.collection,
+              rifaLookupMatchField: rifaLookup.matchField || null,
+              serviceAccountEmail,
+            }
+          : {
+              rifaLookupProjectId: rifaLookup.projectId,
+              rifaLookupCollection: rifaLookup.collection,
+              rifaLookupMatchField: rifaLookup.matchField || null,
+            },
       );
     }
     throw error;
@@ -546,7 +572,7 @@ async function getAuditLogs(req, res) {
 exports.api = onRequest(
   {
     region: REGION,
-    cors: true,
+    cors: false,
     secrets: [
       "REVENUECAT_PROJECTS_JSON",
       "TARGET_FIRESTORE_SERVICE_ACCOUNT_JSON",
@@ -554,6 +580,16 @@ exports.api = onRequest(
   },
   async (req, res) => {
     try {
+      if (req.method === "OPTIONS") {
+        handleCorsPreflight(req, res);
+        return;
+      }
+
+      const corsResult = applyCors(req, res);
+      if (!corsResult.allowed) {
+        throw new HttpError(403, "Origin não permitido.");
+      }
+
       assertRateLimit(`global:${req.ip || "unknown"}`, {
         max: Number(process.env.API_RATE_LIMIT_MAX_REQUESTS || 60),
       });

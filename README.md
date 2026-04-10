@@ -143,6 +143,22 @@ Na raiz do projeto:
 npm run serve
 ```
 
+## Guardrail contra segredos (recomendado)
+
+Este repositório inclui um scanner simples que falha se detectar padrões comuns de segredos (service account JSON, private keys, tokens, etc.).
+
+Ative os hooks locais:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+Opcionalmente, rode manualmente:
+
+```bash
+node scripts/scan-secrets.js
+```
+
 Se o comando falhar na validacao de Java, um fluxo comum no macOS com Homebrew e:
 
 ```bash
