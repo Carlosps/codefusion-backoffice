@@ -13,7 +13,7 @@ test("getPathSegments removes hosting api prefix", () => {
 
 test("getPathSegments removes emulator function prefix", () => {
   assert.deepEqual(
-    getPathSegments({ path: "/code-fusion-backoffice/southamerica-east1/api/auth/session" }),
+    getPathSegments({ path: "/backoffice-code-fusion/southamerica-east1/api/auth/session" }),
     ["auth", "session"],
   );
 });

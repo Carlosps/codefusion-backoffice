@@ -28,8 +28,12 @@ const {
   getPromotionalEntitlementId,
   grantRevenueCatPromotionalAccess,
 } = require("./src/revenuecat");
-const { getTargetFirestoreDb } = require("./src/targetFirestore");
-const { getTargetFirestoreConfig } = require("./src/targetFirestore");
+const {
+  getTargetFirestoreDb,
+  getTargetFirestoreConfig,
+  getRifaLookupConfig,
+  getRifaLookupFirestoreDb,
+} = require("./src/targetFirestore");
 const {
   validateAppUserId,
   validateAuditLimit,
@@ -91,13 +95,40 @@ async function getRifa(req, res, rifaId) {
   }
 
   const targetConfig = getTargetFirestoreConfig();
-  const db = getTargetFirestoreDb();
-  const snapshot = await db.collection("raffles").doc(normalizedId).get();
-  if (!snapshot.exists) {
+  const rifaLookup = getRifaLookupConfig();
+  let docSnap;
+  try {
+    const db = getRifaLookupFirestoreDb();
+    const col = db.collection(rifaLookup.collection);
+
+    if (rifaLookup.matchField) {
+      const qs = await col.where(rifaLookup.matchField, "==", normalizedId).limit(1).get();
+      docSnap = qs.empty ? null : qs.docs[0];
+    } else {
+      const snap = await col.doc(normalizedId).get();
+      docSnap = snap.exists ? snap : null;
+    }
+  } catch (error) {
+    const code = error?.code || error?.status;
+    if (code === 7 || code === "PERMISSION_DENIED" || String(code).includes("permission")) {
+      throw new HttpError(
+        403,
+        `Sem permissao para ler rifas no projeto ${rifaLookup.projectId}. No Google Cloud, abra esse projeto > IAM e conceda a service account do secret TARGET_FIRESTORE_SERVICE_ACCOUNT_JSON (ex.: ...@rifa-73864.iam.gserviceaccount.com) um papel com leitura no Firestore (ex.: Cloud Datastore User).`,
+        {
+          rifaLookupProjectId: rifaLookup.projectId,
+          rifaLookupCollection: rifaLookup.collection,
+          rifaLookupMatchField: rifaLookup.matchField || null,
+        },
+      );
+    }
+    throw error;
+  }
+  if (!docSnap) {
     throw new HttpError(404, "Rifa nao encontrada.", {
-      targetProjectId: targetConfig.projectId || null,
-      collection: "raffles",
-      documentId: normalizedId,
+      rifaLookupProjectId: rifaLookup.projectId,
+      collection: rifaLookup.collection,
+      rifaLookupMatchField: rifaLookup.matchField || null,
+      lookupValue: normalizedId,
       targetFirestoreDisableEmulator: targetConfig.disableEmulator,
     });
   }
@@ -106,10 +137,13 @@ async function getRifa(req, res, rifaId) {
     ok: true,
     rifaId: normalizedId,
     meta: {
-      targetProjectId: targetConfig.projectId || null,
+      rifaLookupProjectId: rifaLookup.projectId,
+      rifaLookupCollection: rifaLookup.collection,
+      rifaLookupMatchField: rifaLookup.matchField || null,
+      firestoreDocumentId: docSnap.id,
       targetFirestoreDisableEmulator: targetConfig.disableEmulator,
     },
-    data: serializeFirestoreValue(snapshot.data() || {}),
+    data: serializeFirestoreValue(docSnap.data() || {}),
   });
 }
 
@@ -513,7 +547,10 @@ exports.api = onRequest(
   {
     region: REGION,
     cors: true,
-    secrets: ["REVENUECAT_PROJECTS_JSON", "TARGET_FIRESTORE_SERVICE_ACCOUNT_JSON"],
+    secrets: [
+      "REVENUECAT_PROJECTS_JSON",
+      "TARGET_FIRESTORE_SERVICE_ACCOUNT_JSON",
+    ],
   },
   async (req, res) => {
     try {

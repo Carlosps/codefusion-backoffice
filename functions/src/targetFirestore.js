@@ -4,6 +4,7 @@ const { getFirestore } = require("firebase-admin/firestore");
 const { HttpError } = require("./errors");
 
 const TARGET_APP_NAME = "target-firestore";
+const RIFA_LOOKUP_APP_NAME = "rifa-lookup-firestore";
 const PRODUCTION_FIRESTORE_HOST = "firestore.googleapis.com";
 
 function parseServiceAccountJson(value) {
@@ -70,11 +71,8 @@ function getTargetFirestoreApp() {
   }
 }
 
-function getTargetFirestoreDb() {
-  const app = getTargetFirestoreApp();
-  const config = getTargetFirestoreConfig();
-
-  if (!config.disableEmulator) {
+function getFirestoreDbFromApp(app, disableEmulator) {
+  if (!disableEmulator) {
     return getFirestore(app);
   }
 
@@ -100,7 +98,87 @@ function getTargetFirestoreDb() {
   }
 }
 
+function getTargetFirestoreDb() {
+  const app = getTargetFirestoreApp();
+  const config = getTargetFirestoreConfig();
+  return getFirestoreDbFromApp(app, config.disableEmulator);
+}
+
+/**
+ * Projeto e coleção usados só na rota GET /rifa/:id.
+ * Por padrão: mesmo projeto que TARGET e coleção "raffles".
+ */
+function getRifaLookupConfig() {
+  const target = getTargetFirestoreConfig();
+  const projectId = String(
+    process.env.RIFA_LOOKUP_PROJECT_ID || target.projectId || "",
+  ).trim();
+  const collection = String(process.env.RIFA_LOOKUP_COLLECTION || "raffles").trim();
+
+  if (!projectId) {
+    throw new HttpError(
+      500,
+      "Defina TARGET_FIRESTORE_PROJECT_ID ou RIFA_LOOKUP_PROJECT_ID para consultar rifas.",
+    );
+  }
+
+  if (!collection) {
+    throw new HttpError(500, "RIFA_LOOKUP_COLLECTION nao pode ser vazio.");
+  }
+
+  const matchField = String(process.env.RIFA_LOOKUP_MATCH_FIELD || "").trim();
+
+  return { projectId, collection, matchField };
+}
+
+function getRifaLookupFirestoreApp() {
+  const targetConfig = getTargetFirestoreConfig();
+  const { projectId } = getRifaLookupConfig();
+
+  if (projectId === targetConfig.projectId) {
+    return getTargetFirestoreApp();
+  }
+
+  const existingApp = getApps().find((app) => app.name === RIFA_LOOKUP_APP_NAME);
+  if (existingApp) {
+    return existingApp;
+  }
+
+  if (!targetConfig.projectId) {
+    throw new HttpError(
+      500,
+      "TARGET_FIRESTORE_PROJECT_ID e obrigatorio para credenciais do Firestore.",
+    );
+  }
+
+  getTargetFirestoreApp();
+
+  try {
+    const options = {
+      projectId,
+      credential: targetConfig.serviceAccount
+        ? cert(targetConfig.serviceAccount)
+        : applicationDefault(),
+    };
+
+    return initializeApp(options, RIFA_LOOKUP_APP_NAME);
+  } catch (error) {
+    throw new HttpError(
+      500,
+      `Nao foi possivel inicializar o Firestore de consulta de rifas (${projectId}).`,
+    );
+  }
+}
+
+function getRifaLookupFirestoreDb() {
+  const app = getRifaLookupFirestoreApp();
+  const config = getTargetFirestoreConfig();
+  return getFirestoreDbFromApp(app, config.disableEmulator);
+}
+
 module.exports = {
   getTargetFirestoreConfig,
   getTargetFirestoreDb,
+  getRifaLookupConfig,
+  getRifaLookupFirestoreDb,
 };

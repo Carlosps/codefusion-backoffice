@@ -17,7 +17,7 @@ Painel interno em HTML/CSS/JS com Firebase Hosting + Firebase Functions para dar
 
 ## Arquitetura Firebase
 
-- `code-fusion-backoffice`: projeto do painel, com Hosting, Google Sign-In, Auth e Functions
+- `backoffice-code-fusion`: projeto do painel, com Hosting, Google Sign-In, Auth e Functions
 - `rifa-73864`: projeto de dados fixo, usado apenas para as operacoes administrativas no Firestore
 - a auditoria continua gravada no projeto do backoffice
 
@@ -67,7 +67,7 @@ O modulo RevenueCat do painel busca a lista do dropdown no backend. O nome exibi
 `label`, o identificador interno usado pela rota vem de `projectId` e a credencial privada usada
 na consulta vem de `secretKey`.
 
-Se as Functions do `code-fusion-backoffice` nao tiverem permissao IAM no projeto `rifa-73864`, configure tambem:
+Se as Functions do `backoffice-code-fusion` nao tiverem permissao IAM no projeto `rifa-73864`, configure tambem:
 
 - `TARGET_FIRESTORE_SERVICE_ACCOUNT_JSON` em `functions/.secret.local` para desenvolvimento local
 - `TARGET_FIRESTORE_SERVICE_ACCOUNT_JSON` no Secret Manager para deploy, se nao for usar IAM entre projetos
@@ -110,11 +110,11 @@ Esse JSON tambem pode ser informado como objeto, caso voce prefira usar o `proje
 cp web/config.example.js web/config.js
 ```
 
-Preencha o objeto `firebase` com a configuracao publica do projeto `code-fusion-backoffice`.
+Preencha o objeto `firebase` com a configuracao publica do projeto `backoffice-code-fusion`.
 Esse projeto e o responsavel por Hosting, Auth e Google Sign-In do painel.
 O projeto `rifa-73864` fica apenas no backend, como Firestore alvo das operacoes administrativas.
 
-5. No Firebase Console do `code-fusion-backoffice`:
+5. No Firebase Console do `backoffice-code-fusion`:
 
 - habilite `Authentication > Sign-in method > Google`
 - confira se `localhost` e `127.0.0.1` estao autorizados em `Authentication > Settings > Authorized domains`
@@ -133,7 +133,7 @@ Ambiente local recomendado:
 - Node.js 20+; Node 22 tambem funciona bem para desenvolvimento local
 - `functions/package.json` continua com runtime alvo `node: 20` para deploy
 - `npm run serve` agora valida Java antes de subir os emuladores; use JDK 21+ com `JAVA_HOME` e `PATH` apontando para essa instalacao
-- os scripts deste repo usam explicitamente o projeto Firebase `code-fusion-backoffice`, sem depender do projeto ativo global do CLI
+- os scripts deste repo usam explicitamente o projeto Firebase `backoffice-code-fusion`, sem depender do projeto ativo global do CLI
 
 ## Rodando localmente
 
@@ -163,14 +163,14 @@ O fluxo local recomendado desta v1 e:
 
 - Hosting, Functions e Firestore em emuladores
 - `functions/.env` para configuracoes nao secretas e `functions/.secret.local` para overrides de secrets
-- Google Sign-In no projeto real `code-fusion-backoffice`, configurado em `web/config.js`
+- Google Sign-In no projeto real `backoffice-code-fusion`, configurado em `web/config.js`
 - Firestore administrativo apontando para o projeto fixo `rifa-73864`
 
 ## Como funciona a allowlist
 
 - O suporte faz login com Google no frontend.
 - O backend recebe o Firebase ID token e valida o e-mail em [functions/src/auth.js](/Users/antonioreis/Desktop/Projetos/Apps/Code%20Fusion/codefusion-backoffice/functions/src/auth.js).
-- Esse token precisa ser emitido pelo projeto `code-fusion-backoffice`, que e o projeto do painel.
+- Esse token precisa ser emitido pelo projeto `backoffice-code-fusion`, que e o projeto do painel.
 - Se `SUPPORT_ALLOWED_EMAILS` estiver preenchido, apenas os e-mails da lista entram.
 - Se `SUPPORT_ALLOWED_DOMAIN` estiver preenchido, qualquer conta daquele dominio entra.
 - Se ambos estiverem preenchidos, basta satisfazer uma das duas regras.
@@ -196,7 +196,7 @@ Depois:
 npm run deploy
 ```
 
-Esse deploy publica no Hosting principal do projeto `code-fusion-backoffice` e sobe as Functions no mesmo ambiente.
+Esse deploy publica no Hosting principal do projeto `backoffice-code-fusion` e sobe as Functions no mesmo ambiente.
 
 ## Endpoints principais
 
@@ -215,7 +215,7 @@ Esse deploy publica no Hosting principal do projeto `code-fusion-backoffice` e s
 
 - O frontend nunca acessa RevenueCat nem Firestore Admin diretamente.
 - Todas as rotas administrativas exigem `Authorization: Bearer <Firebase ID Token>`.
-- O suporte entra com Google no projeto `code-fusion-backoffice`; o backend bloqueia quem estiver fora da allowlist.
+- O suporte entra com Google no projeto `backoffice-code-fusion`; o backend bloqueia quem estiver fora da allowlist.
 - O backend usa uma conexao Admin secundaria para ler e escrever no Firestore do projeto `rifa-73864`.
 - O Firestore administrativo e orientado por allowlist, nao por edicao generica.
 - As regras de cliente do Firestore estao fechadas por padrao; acessos operacionais passam pelo backend.
@@ -223,7 +223,7 @@ Esse deploy publica no Hosting principal do projeto `code-fusion-backoffice` e s
 ## Observacoes importantes
 
 - O modulo Firestore assume, por padrao, uma colecao `users` com campo numerico `credits`. Ajuste isso antes de ir para producao.
-- Se `TARGET_FIRESTORE_SERVICE_ACCOUNT_JSON` nao for usado, a conta de servico das Functions do `code-fusion-backoffice` precisa ter permissao no projeto `rifa-73864`.
+- Se `TARGET_FIRESTORE_SERVICE_ACCOUNT_JSON` nao for usado, a conta de servico das Functions do `backoffice-code-fusion` precisa ter permissao no projeto `rifa-73864`.
 - O historico do RevenueCat e derivado dos dados retornados pelo endpoint de subscriber, entao ele mostra os eventos principais disponiveis nessa resposta.
 - A busca multi-projeto do RevenueCat ignora subscribers que parecem ter sido criados pela propria consulta; `first_seen` sozinho so conta quando nao coincide com o `request_date` e nao ha sinais de subscriber fantasma.
 - O modulo RevenueCat exige escolha manual do projeto antes da consulta.

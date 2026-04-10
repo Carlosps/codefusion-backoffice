@@ -9,6 +9,26 @@ function parseList(value) {
     .filter(Boolean);
 }
 
+/**
+ * Gmail / Googlemail ignoram pontos na parte local; o Firebase pode devolver o e-mail
+ * sem pontos mesmo que a lista use "nome.sobrenome@gmail.com".
+ */
+function normalizeEmailForPolicyMatch(email) {
+  const value = String(email || "").trim().toLowerCase();
+  const at = value.lastIndexOf("@");
+  if (at < 1) {
+    return value;
+  }
+
+  let local = value.slice(0, at);
+  const domain = value.slice(at + 1);
+  if (domain === "gmail.com" || domain === "googlemail.com") {
+    local = local.replaceAll(".", "");
+  }
+
+  return `${local}@${domain}`;
+}
+
 function getAccessPolicy() {
   return {
     allowedEmails: parseList(process.env.SUPPORT_ALLOWED_EMAILS),
@@ -27,12 +47,16 @@ function parseBearerToken(header) {
 function assertActorAllowed(email) {
   const policy = getAccessPolicy();
   const normalizedEmail = String(email || "").trim().toLowerCase();
+  const comparableActor = normalizeEmailForPolicyMatch(email);
 
   if (!policy.allowedEmails.length && !policy.allowedDomain) {
     return;
   }
 
-  const allowedByEmail = policy.allowedEmails.includes(normalizedEmail);
+  const allowedComparable = new Set(
+    policy.allowedEmails.map((entry) => normalizeEmailForPolicyMatch(entry)),
+  );
+  const allowedByEmail = allowedComparable.has(comparableActor);
   const allowedByDomain =
     policy.allowedDomain && normalizedEmail.endsWith(`@${policy.allowedDomain}`);
 

@@ -682,7 +682,11 @@ async function findCustomersAcrossProjects(appUserId, fetcher = fetchRevenueCatS
 
   if (!matches.length) {
     if (errors.length) {
-      throw new HttpError(errors[0].status, errors[0].message);
+      const first = errors[0];
+      const code = Number(first.status);
+      const safeStatus =
+        Number.isInteger(code) && code >= 400 && code < 600 ? code : 502;
+      throw new HttpError(safeStatus, first.message || "Falha ao consultar o RevenueCat.");
     }
 
     throw new HttpError(404, "Cliente nao encontrado nos aplicativos configurados.");

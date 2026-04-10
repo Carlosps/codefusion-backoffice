@@ -1,4 +1,5 @@
 const { getFirestore, FieldValue } = require("firebase-admin/firestore");
+const { logger } = require("firebase-functions");
 
 function getAuditCollection() {
   return process.env.AUDIT_COLLECTION || "support_audit_logs";
@@ -6,6 +7,32 @@ function getAuditCollection() {
 
 function getAuditDb() {
   return getFirestore();
+}
+
+function stripUndefinedDeep(value) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (value === null || typeof value !== "object") {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => stripUndefinedDeep(item)).filter((item) => item !== undefined);
+  }
+
+  const out = {};
+  for (const [key, child] of Object.entries(value)) {
+    if (child === undefined) {
+      continue;
+    }
+    const next = stripUndefinedDeep(child);
+    if (next !== undefined) {
+      out[key] = next;
+    }
+  }
+  return out;
 }
 
 function formatTimestamp(value) {
@@ -21,15 +48,23 @@ function formatTimestamp(value) {
 }
 
 async function logAuditEvent({ module, action, actor, target, status, metadata }) {
-  await getAuditDb().collection(getAuditCollection()).add({
-    module,
-    action,
-    actor,
-    target,
-    status,
-    metadata: metadata || null,
+  const doc = {
+    ...stripUndefinedDeep({
+      module,
+      action,
+      actor,
+      target,
+      status,
+      metadata: metadata || null,
+    }),
     createdAt: FieldValue.serverTimestamp(),
-  });
+  };
+
+  try {
+    await getAuditDb().collection(getAuditCollection()).add(doc);
+  } catch (error) {
+    logger.warn("Audit log skipped", { module, action, status, message: error.message });
+  }
 }
 
 async function fetchAuditLogs({ limit = 30 } = {}) {

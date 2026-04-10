@@ -3,7 +3,7 @@
 const { spawn, spawnSync } = require("node:child_process");
 
 const MIN_JAVA_MAJOR = 21;
-const FIREBASE_PROJECT_ID = "code-fusion-backoffice";
+const FIREBASE_PROJECT_ID = "backoffice-code-fusion";
 const FIREBASE_ARGS = [
   "emulators:start",
   "--project",
