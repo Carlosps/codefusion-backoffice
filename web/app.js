@@ -1,4 +1,10 @@
 (function bootstrap() {
+  /** Incremente ao mudar o front; confirme no console se o deploy chegou ao browser. */
+  const BACKOFFICE_BUILD_ID = "2026-04-11-rifa-logs";
+  console.info("[backoffice] app.js carregado", BACKOFFICE_BUILD_ID, {
+    href: typeof location !== "undefined" ? location.href : "",
+  });
+
   const config = window.BACKOFFICE_CONFIG;
   const state = {
     auth: null,
@@ -74,6 +80,24 @@
       .replaceAll(">", "&gt;")
       .replaceAll('"', "&quot;")
       .replaceAll("'", "&#39;");
+  }
+
+  /**
+   * Clique no texto dentro de <button> pode deixar event.target como Text (sem .closest).
+   */
+  function elementFromClickTarget(target) {
+    if (!target) {
+      return null;
+    }
+    if (target.nodeType === Node.TEXT_NODE || target.nodeType === Node.COMMENT_NODE) {
+      return target.parentElement;
+    }
+    return target instanceof Element ? target : null;
+  }
+
+  function closestFromClickTarget(target, selector) {
+    const el = elementFromClickTarget(target);
+    return el && typeof el.closest === "function" ? el.closest(selector) : null;
   }
 
   function formatDate(value, fallback = "Não informado", withTime = true) {
@@ -346,29 +370,78 @@
     return state.user.getIdToken(true);
   }
 
+  function logRifa(message, detail) {
+    if (detail !== undefined) {
+      console.log("[rifa]", message, detail);
+    } else {
+      console.log("[rifa]", message);
+    }
+  }
+
   async function apiRequest(path, options = {}) {
+    const method = options.method || "GET";
+    const url = `${config.functionsBaseUrl}${path}`;
+    const logRifaApi = path.includes("/rifa/");
+
+    if (logRifaApi) {
+      logRifa("apiRequest", {
+        method,
+        url,
+        functionsBaseUrl: config.functionsBaseUrl,
+        hasBody: Boolean(options.body),
+      });
+    }
+
     const token = await getIdToken();
     if (!token) {
+      if (logRifaApi) {
+        logRifa("apiRequest abortado: sem token (sessão)");
+      }
       const error = new Error("Sua sessão expirou. Entre novamente.");
       error.status = 401;
       throw error;
     }
 
-    const response = await fetch(`${config.functionsBaseUrl}${path}`, {
-      method: options.method || "GET",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-        ...(options.headers || {}),
-      },
-      body: options.body ? JSON.stringify(options.body) : undefined,
-    });
+    let response;
+    try {
+      response = await fetch(url, {
+        method,
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+          ...(options.headers || {}),
+        },
+        body: options.body ? JSON.stringify(options.body) : undefined,
+      });
+    } catch (networkError) {
+      if (logRifaApi) {
+        logRifa("fetch falhou (rede / CORS / offline)", {
+          message: networkError?.message,
+          name: networkError?.name,
+        });
+      }
+      throw networkError;
+    }
+
+    if (logRifaApi) {
+      logRifa("apiRequest HTTP", { status: response.status, ok: response.ok, url });
+    }
 
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
+      if (logRifaApi) {
+        logRifa("apiRequest erro JSON", {
+          status: response.status,
+          error: payload?.error || payload,
+        });
+      }
       const error = new Error(payload.error?.message || "Não foi possível concluir a operação.");
       error.status = response.status;
       throw error;
+    }
+
+    if (logRifaApi) {
+      logRifa("apiRequest ok", { ok: payload?.ok });
     }
 
     return payload;
@@ -505,6 +578,40 @@
     return rows;
   }
 
+  /**
+   * Deriva estado de bloqueio a partir de campos comuns (unlocked, isUnlocked, blocked).
+   */
+  function interpretRifaLockState(data) {
+    if (!data || typeof data !== "object") {
+      return { state: "unknown", chipUnlocked: null };
+    }
+
+    const u = data.unlocked;
+    if (u === true || u === "true" || u === 1 || u === "1") {
+      return { state: "unlocked", chipUnlocked: true };
+    }
+    if (u === false || u === "false" || u === 0 || u === "0") {
+      return { state: "locked", chipUnlocked: false };
+    }
+
+    const iu = data.isUnlocked;
+    if (iu === true || iu === "true" || iu === 1 || iu === "1") {
+      return { state: "unlocked", chipUnlocked: true };
+    }
+    if (iu === false || iu === "false" || iu === 0 || iu === "0") {
+      return { state: "locked", chipUnlocked: false };
+    }
+
+    if (data.blocked === true) {
+      return { state: "locked", chipUnlocked: false };
+    }
+    if (data.blocked === false) {
+      return { state: "unlocked", chipUnlocked: true };
+    }
+
+    return { state: "unknown", chipUnlocked: null };
+  }
+
   function renderRifaResult(payload) {
     if (!nodes.rifaResults) {
       return;
@@ -516,7 +623,8 @@
       data,
     };
     const unlockPrice = data?.unlockPrice;
-    const unlocked = data?.unlocked;
+    const { state: lockState, chipUnlocked } = interpretRifaLockState(data);
+    const unlocked = chipUnlocked;
     const currentProfit = data?.currentProfit;
     const freeTrialActive = data?.freeTrialActive;
     const freeTrialExpiresAt = data?.freeTrialExpiresAt;
@@ -529,7 +637,34 @@
     const statusTone = unlocked === true ? "success" : unlocked === false ? "" : "";
     const trialTone = freeTrialActive === true ? "success" : "";
     const photo = renderRifaPhoto(imageLinks);
-    const toggleLabel = unlocked === true ? "Bloquear rifa" : "Desbloquear rifa";
+    const toggleLabel = lockState === "unlocked" ? "Bloquear rifa" : "Desbloquear rifa";
+    const lockControlsHtml =
+      lockState === "unknown"
+        ? `
+                  <button
+                    class="button button-secondary button-compact"
+                    type="button"
+                    data-rifa-action="lock-rifa"
+                  >
+                    Bloquear rifa
+                  </button>
+                  <button
+                    class="button button-secondary button-compact"
+                    type="button"
+                    data-rifa-action="unlock-rifa"
+                  >
+                    Desbloquear rifa
+                  </button>
+                `
+        : `
+                  <button
+                    class="button button-secondary button-compact"
+                    type="button"
+                    data-rifa-action="toggle-lock"
+                  >
+                    ${escapeHtml(toggleLabel)}
+                  </button>
+                `;
 
     const additionalRows = flattenRifaData(data).map((row) => ({
       key: row.key,
@@ -552,13 +687,7 @@
                   <span class="status-chip ${unlocked === true ? "status-chip-success" : "status-chip-muted"}">
                     ${escapeHtml(unlocked === true ? "Rifa desbloqueada" : unlocked === false ? "Rifa bloqueada" : "Status não informado")}
                   </span>
-                  <button
-                    class="button button-secondary button-compact"
-                    type="button"
-                    data-rifa-action="toggle-lock"
-                  >
-                    ${escapeHtml(toggleLabel)}
-                  </button>
+                  ${lockControlsHtml}
                   <div class="inline-days">
                     <input
                       class="input-compact"
@@ -1196,41 +1325,118 @@
       }
     });
 
+    if (!nodes.rifaResults) {
+      console.warn("[rifa] #rifa-results não existe no DOM; ações de bloqueio/dias grátis não serão ligadas.");
+    }
+
     nodes.rifaResults?.addEventListener("click", async (event) => {
-      const button = event.target.closest("[data-rifa-action]");
+      logRifa("click em #rifa-results", {
+        targetNode: event.target?.nodeName,
+        targetIsElement: event.target instanceof Element,
+      });
+
+      const button = closestFromClickTarget(event.target, "[data-rifa-action]");
       if (!button) {
+        logRifa("nenhum elemento [data-rifa-action] encontrado a partir do target (clique fora dos botões?)");
         return;
       }
 
-      if (button.dataset.rifaAction === "toggle-lock") {
+      const rifaAction = button.dataset.rifaAction;
+      logRifa("botão rifa", { rifaAction, disabled: button.disabled });
+
+      if (rifaAction === "toggle-lock" || rifaAction === "lock-rifa" || rifaAction === "unlock-rifa") {
         const rifaId = state.rifa?.rifaId;
-        const unlocked = state.rifa?.data?.unlocked;
-        const actionLabel = unlocked === true ? "bloquear" : "desbloquear";
-        setFeedback(
-          nodes.rifaFeedback,
-          `Ação de ${actionLabel} rifa ainda não implementada (Rifa ID: ${rifaId || "-"})`,
-          null,
-        );
+        if (!rifaId) {
+          logRifa("abortado: state.rifa.rifaId vazio (consulte a rifa de novo)");
+          setFeedback(nodes.rifaFeedback, "Rifa ID nao encontrado. Consulte a rifa novamente.", "error");
+          return;
+        }
+
+        const lockMeta = interpretRifaLockState(state.rifa?.data);
+        let endpoint;
+        let actionLabel;
+
+        if (rifaAction === "lock-rifa") {
+          endpoint = `/rifa/${encodeURIComponent(rifaId)}/lock`;
+          actionLabel = "bloquear";
+        } else if (rifaAction === "unlock-rifa") {
+          endpoint = `/rifa/${encodeURIComponent(rifaId)}/unlock`;
+          actionLabel = "desbloquear";
+        } else if (lockMeta.state === "unlocked") {
+          endpoint = `/rifa/${encodeURIComponent(rifaId)}/lock`;
+          actionLabel = "bloquear";
+        } else if (lockMeta.state === "locked") {
+          endpoint = `/rifa/${encodeURIComponent(rifaId)}/unlock`;
+          actionLabel = "desbloquear";
+        } else {
+          logRifa("abortado: estado de bloqueio desconhecido para toggle-lock", { lockMeta, rifaAction });
+          setFeedback(
+            nodes.rifaFeedback,
+            "Estado de bloqueio ambíguo: use Bloquear rifa ou Desbloquear rifa (dois botões acima).",
+            "error",
+          );
+          return;
+        }
+
+        logRifa(`iniciando ${actionLabel}`, { endpoint, rifaId, lockMeta });
+        setFeedback(nodes.rifaFeedback, `Tentando ${actionLabel} rifa...`, null);
+        button.disabled = true;
+        try {
+          const result = await apiRequest(endpoint, { method: "POST", body: {} });
+          const payload = await apiRequest(`/rifa/${encodeURIComponent(rifaId)}`);
+          renderRifaResult(payload);
+          setFeedback(nodes.rifaFeedback, result?.result?.message || "Operacao concluida com sucesso.", "success");
+          logRifa(`${actionLabel} concluído com sucesso`);
+        } catch (error) {
+          logRifa(`${actionLabel} falhou`, { message: error?.message, status: error?.status });
+          setFeedback(nodes.rifaFeedback, error.message, "error");
+        } finally {
+          button.disabled = false;
+        }
+        return;
       }
 
-      if (button.dataset.rifaAction === "add-free-days") {
+      if (rifaAction === "add-free-days") {
         const rifaId = state.rifa?.rifaId;
         const wrapper = button.closest(".status-chip-row") || nodes.rifaResults;
         const input = wrapper?.querySelector("[data-rifa-days-input]");
         const raw = input?.value?.trim();
         const days = Number(raw);
 
+        if (!rifaId) {
+          logRifa("add-free-days abortado: sem rifaId");
+          setFeedback(nodes.rifaFeedback, "Rifa ID nao encontrado. Consulte a rifa novamente.", "error");
+          return;
+        }
+
         if (!Number.isFinite(days) || !Number.isInteger(days) || days <= 0) {
+          logRifa("add-free-days abortado: dias inválidos", { raw, days });
           setFeedback(nodes.rifaFeedback, "Informe um número válido de dias (ex.: 7).", "error");
           return;
         }
 
-        setFeedback(
-          nodes.rifaFeedback,
-          `Ação de adicionar ${days} dia(s) grátis ainda não implementada (Rifa ID: ${rifaId || "-"})`,
-          null,
-        );
+        logRifa("add-free-days", { rifaId, days });
+        setFeedback(nodes.rifaFeedback, `Adicionando ${days} dia(s) gratis...`, null);
+        button.disabled = true;
+        try {
+          const result = await apiRequest(`/rifa/${encodeURIComponent(rifaId)}/free-trial`, {
+            method: "POST",
+            body: { days, trialDays: days },
+          });
+          const payload = await apiRequest(`/rifa/${encodeURIComponent(rifaId)}`);
+          renderRifaResult(payload);
+          setFeedback(nodes.rifaFeedback, result?.result?.message || "Operacao concluida com sucesso.", "success");
+          logRifa("add-free-days concluído");
+        } catch (error) {
+          logRifa("add-free-days falhou", { message: error?.message, status: error?.status });
+          setFeedback(nodes.rifaFeedback, error.message, "error");
+        } finally {
+          button.disabled = false;
+        }
+        return;
       }
+
+      logRifa("clique ignorado: data-rifa-action não tratado", { rifaAction });
     });
 
     nodes.reloadHistoryButton.addEventListener("click", async () => {
@@ -1247,7 +1453,7 @@
     });
 
     nodes.revenueCatResults.addEventListener("click", async (event) => {
-      const grantButton = event.target.closest("[data-grant-kind]");
+      const grantButton = closestFromClickTarget(event.target, "[data-grant-kind]");
       if (grantButton) {
         const form = grantButton.closest(".manual-access-form");
         if (form) {

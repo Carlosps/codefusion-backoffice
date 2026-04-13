@@ -176,9 +176,57 @@ function getRifaLookupFirestoreDb() {
   return getFirestoreDbFromApp(app, config.disableEmulator);
 }
 
+/**
+ * Fonte da verdade no Firestore (contrato compartilhado com o app de rifas):
+ * - Estado de liberacao: um booleano no campo configuravel (padrao `unlocked`).
+ *   Legado: alguns docs podem ter so `isUnlocked` ou so `blocked`; o backoffice
+ *   grava o campo canonico (`RIFA_UNLOCKED_FIELD` / SUPPORT_RAFFLE_UNLOCKED_FIELD)
+ *   e, se mirror ativo, tambem `blocked` para manter leituras antigas alinhadas.
+ * - Desbloqueio pelo suporte: `unlockReason: "support"` (nunca valores tipo EXTERNAL_UNLOCK).
+ *
+ * Prioridade de env (primeiro valor nao-vazio vence):
+ * - Campo booleano principal: RIFA_UNLOCKED_FIELD, depois SUPPORT_RAFFLE_UNLOCKED_FIELD
+ *   (espelho de functions.config support.raffle_unlocked_field no app, mapeado para env no deploy).
+ * - Espelhar blocked: RIFA_MIRROR_BLOCKED_FIELD, depois SUPPORT_MIRROR_BLOCKED_FIELD
+ *   (espelho de support.mirror_blocked_field).
+ */
+function pickFirstNonEmptyString(...candidates) {
+  for (const c of candidates) {
+    const s = String(c ?? "").trim();
+    if (s) {
+      return s;
+    }
+  }
+  return "";
+}
+
+function resolveMirrorBlockedEnv() {
+  const keys = ["RIFA_MIRROR_BLOCKED_FIELD", "SUPPORT_MIRROR_BLOCKED_FIELD"];
+  for (const key of keys) {
+    const v = String(process.env[key] || "").trim().toLowerCase();
+    if (v === "true") {
+      return true;
+    }
+    if (v === "false") {
+      return false;
+    }
+  }
+  return false;
+}
+
+function getRifaLockWriteConfig() {
+  const unlockedField =
+    pickFirstNonEmptyString(process.env.RIFA_UNLOCKED_FIELD, process.env.SUPPORT_RAFFLE_UNLOCKED_FIELD) ||
+    "unlocked";
+  const mirrorBlocked = resolveMirrorBlockedEnv();
+
+  return { unlockedField, mirrorBlocked };
+}
+
 module.exports = {
   getTargetFirestoreConfig,
   getTargetFirestoreDb,
   getRifaLookupConfig,
   getRifaLookupFirestoreDb,
+  getRifaLockWriteConfig,
 };
