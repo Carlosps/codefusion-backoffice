@@ -296,7 +296,7 @@ test("findCustomersAcrossProjects ignores subscriber created at request time", a
   );
 });
 
-test("findCustomersAcrossProjects keeps subscriber with historical first_seen and no purchases", async () => {
+test("findCustomersAcrossProjects ignores subscriber with historical first_seen and no purchases", async () => {
   process.env.REVENUECAT_PROJECTS_JSON = JSON.stringify([
     {
       projectId: "rifa-facil",
@@ -306,25 +306,27 @@ test("findCustomersAcrossProjects keeps subscriber with historical first_seen an
   ]);
   delete process.env.REVENUECAT_SECRET_KEY;
 
-  const result = await findCustomersAcrossProjects("user_first_seen", async () => ({
-    project: {
-      projectId: "rifa-facil",
-      label: "Rifa Facil",
-    },
-    app_user_id: "user_first_seen",
-    request_date: "2026-04-03T10:00:00Z",
-    subscriber: {
-      original_app_user_id: "user_first_seen",
-      first_seen: "2026-04-01T00:00:00Z",
-      subscriptions: {},
-      entitlements: {},
-      non_subscriptions: {},
-    },
-  }));
-
-  assert.equal(result.totalMatches, 1);
-  assert.equal(result.matches[0].customer.firstSeen, "2026-04-01T00:00:00Z");
-  assert.equal(result.matches[0].history.items.length, 0);
+  await assert.rejects(
+    () =>
+      findCustomersAcrossProjects("user_first_seen", async () => ({
+        project: {
+          projectId: "rifa-facil",
+          label: "Rifa Facil",
+        },
+        app_user_id: "user_first_seen",
+        request_date: "2026-04-03T10:00:00Z",
+        subscriber: {
+          original_app_user_id: "user_first_seen",
+          first_seen: "2026-04-01T00:00:00Z",
+          subscriptions: {},
+          entitlements: {},
+          non_subscriptions: {},
+        },
+      })),
+    (error) =>
+      error.status === 404 &&
+      error.message === "Cliente não encontrado nos aplicativos configurados.",
+  );
 });
 
 test("findCustomersAcrossProjects keeps subscriber with subscription even if first_seen matches request", async () => {
@@ -366,6 +368,156 @@ test("findCustomersAcrossProjects keeps subscriber with subscription even if fir
   assert.equal(result.matches[0].customer.firstSeen, "2026-04-03T10:00:00Z");
   assert.equal(result.matches[0].customer.subscriptions.length, 1);
   assert.equal(result.matches[0].customer.status.hasActiveSubscription, true);
+});
+
+test("findCustomersAcrossProjects returns only projects with useful data", async () => {
+  process.env.REVENUECAT_PROJECTS_JSON = JSON.stringify([
+    {
+      projectId: "rifa-facil",
+      label: "Rifa Facil",
+      secretKey: "secret_1",
+    },
+    {
+      projectId: "rifa-digital",
+      label: "Rifa Digital",
+      secretKey: "secret_2",
+    },
+  ]);
+  delete process.env.REVENUECAT_SECRET_KEY;
+
+  const result = await findCustomersAcrossProjects("shared_user", async (projectId) => {
+    if (projectId === "rifa-facil") {
+      return {
+        project: {
+          projectId: "rifa-facil",
+          label: "Rifa Facil",
+        },
+        app_user_id: "shared_user",
+        request_date: "2026-04-03T10:00:00Z",
+        subscriber: {
+          original_app_user_id: "shared_user",
+          first_seen: "2026-04-01T00:00:00Z",
+          subscriptions: {},
+          entitlements: {},
+          non_subscriptions: {},
+        },
+      };
+    }
+
+    if (projectId === "rifa-digital") {
+      return {
+        project: {
+          projectId: "rifa-digital",
+          label: "Rifa Digital",
+        },
+        app_user_id: "shared_user",
+        request_date: "2026-04-03T10:00:00Z",
+        subscriber: {
+          original_app_user_id: "shared_user",
+          first_seen: "2026-04-03T10:00:00Z",
+          subscriptions: {
+            pro_monthly: {
+              store: "play_store",
+              purchase_date: "2026-04-01T00:00:00Z",
+              original_purchase_date: "2026-04-01T00:00:00Z",
+              expires_date: "2099-05-01T00:00:00Z",
+              is_sandbox: false,
+              period_type: "normal",
+            },
+          },
+          entitlements: {},
+          non_subscriptions: {},
+        },
+      };
+    }
+
+    throw new Error(`Projeto inesperado: ${projectId}`);
+  });
+
+  assert.equal(result.searchedProjectCount, 2);
+  assert.equal(result.totalMatches, 1);
+  assert.equal(result.matches[0].customer.project.projectId, "rifa-digital");
+  assert.equal(result.matches[0].customer.currentProduct, "pro_monthly");
+});
+
+test("findCustomersAcrossProjects keeps subscriber with non-subscription purchase", async () => {
+  process.env.REVENUECAT_PROJECTS_JSON = JSON.stringify([
+    {
+      projectId: "rifa-facil",
+      label: "Rifa Facil",
+      secretKey: "secret_1",
+    },
+  ]);
+  delete process.env.REVENUECAT_SECRET_KEY;
+
+  const result = await findCustomersAcrossProjects("user_non_subscription", async () => ({
+    project: {
+      projectId: "rifa-facil",
+      label: "Rifa Facil",
+    },
+    app_user_id: "user_non_subscription",
+    request_date: "2026-04-03T10:00:00Z",
+    subscriber: {
+      original_app_user_id: "user_non_subscription",
+      first_seen: "2026-04-03T10:00:00Z",
+      subscriptions: {},
+      entitlements: {},
+      non_subscriptions: {
+        pro_mensal: [
+          {
+            purchase_date: "2026-04-01T00:00:00Z",
+            store: "play_store",
+            is_sandbox: false,
+          },
+        ],
+      },
+    },
+  }));
+
+  assert.equal(result.totalMatches, 1);
+  assert.equal(result.matches[0].customer.nonSubscriptionCount, 1);
+  assert.equal(result.matches[0].history.items.length, 1);
+});
+
+test("findCustomersAcrossProjects keeps subscriber with entitlement", async () => {
+  process.env.REVENUECAT_PROJECTS_JSON = JSON.stringify([
+    {
+      projectId: "rifa-facil",
+      label: "Rifa Facil",
+      secretKey: "secret_1",
+    },
+  ]);
+  delete process.env.REVENUECAT_SECRET_KEY;
+
+  const result = await findCustomersAcrossProjects("user_entitlement", async () => ({
+    project: {
+      projectId: "rifa-facil",
+      label: "Rifa Facil",
+    },
+    app_user_id: "user_entitlement",
+    request_date: "2026-04-03T10:00:00Z",
+    subscriber: {
+      original_app_user_id: "user_entitlement",
+      first_seen: "2026-04-03T10:00:00Z",
+      subscriptions: {},
+      entitlements: {
+        pro: {
+          product_identifier: "pro_monthly",
+          purchase_date: "2026-04-01T00:00:00Z",
+          original_purchase_date: "2026-04-01T00:00:00Z",
+          expires_date: "2099-05-01T00:00:00Z",
+          will_renew: true,
+          store: "play_store",
+          period_type: "normal",
+        },
+      },
+      non_subscriptions: {},
+    },
+  }));
+
+  assert.equal(result.totalMatches, 1);
+  assert.equal(result.matches[0].customer.entitlements.all.length, 1);
+  assert.equal(result.matches[0].customer.status.hasActiveEntitlement, true);
 });
 
 test("getRevenueCatProjectsConfig parses multiple configured projects", () => {

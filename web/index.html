@@ -10,14 +10,14 @@
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./styles.css?v=2026-06-04-auth-revenuecat-filter" />
   </head>
   <body>
     <div class="app-shell">
       <header class="topbar">
         <div class="brand-block">
-          <p class="eyebrow">Code Fusion</p>
-          <h1>Support Backoffice</h1>
+          <strong>CodeFusion</strong>
+          <span>Backoffice</span>
         </div>
 
         <div class="session-bar">
@@ -43,12 +43,12 @@
 
         <section id="auth-panel" class="panel auth-panel">
           <div class="auth-card">
-            <p class="eyebrow" id="auth-panel-eyebrow">Acesso</p>
-            <h2 id="auth-panel-title">Acessar backoffice</h2>
+            <p class="eyebrow" id="auth-panel-eyebrow">Sessão</p>
+            <h2 id="auth-panel-title">Verificando acesso...</h2>
             <p id="auth-panel-description" class="auth-card-text">
-              Entre com a conta Google autorizada para continuar.
+              Aguarde enquanto confirmamos sua sessão.
             </p>
-            <button id="login-button" class="button button-google" type="button">
+            <button id="login-button" class="button button-google hidden" type="button" disabled>
               <span class="google-mark" aria-hidden="true">
                 <svg viewBox="0 0 18 18" focusable="false">
                   <path
@@ -75,69 +75,95 @@
           </div>
         </section>
 
-        <section id="revenuecat-panel" class="panel hidden">
-          <div class="section-heading">
-            <div>
-              <p class="eyebrow">RevenueCat</p>
-              <h2>Consultar cliente</h2>
-              <p class="section-copy">
-                Informe o <strong>App User ID</strong> para localizar o cliente e ver os detalhes
-                de acesso.
-              </p>
-            </div>
-            <button
-              id="reload-history-button"
-              class="button button-secondary hidden"
-              type="button"
-            >
-              Atualizar busca
-            </button>
+        <section id="revenuecat-panel" class="operations-panel hidden">
+          <div class="lookup-strip">
+            <article class="lookup-module lookup-module-rifa">
+              <div class="workspace-heading">
+                <div>
+                  <p class="eyebrow">Rifa ID</p>
+                  <h2>Consultar rifa</h2>
+                  <p class="section-copy">Firestore, status, e-mail e ações de suporte.</p>
+                </div>
+              </div>
+
+              <form id="rifa-form" class="lookup-form">
+                <label class="field grow">
+                  <span>Rifa ID</span>
+                  <input
+                    id="rifa-id"
+                    name="rifaId"
+                    type="text"
+                    placeholder="Ex.: Vh0pG8lYwqQ8k2..."
+                    required
+                  />
+                </label>
+                <button class="button button-primary" type="submit">Consultar rifa</button>
+              </form>
+
+              <div id="rifa-feedback" class="feedback"></div>
+            </article>
+
+            <article class="lookup-module lookup-module-revenuecat">
+              <div class="workspace-heading">
+                <div>
+                  <p class="eyebrow">RevenueCat</p>
+                  <h2>Consultar cliente</h2>
+                  <p class="section-copy">App User ID, acessos, assinaturas e histórico.</p>
+                </div>
+                <button
+                  id="reload-history-button"
+                  class="button button-secondary hidden"
+                  type="button"
+                >
+                  Atualizar busca
+                </button>
+              </div>
+
+              <div id="revenuecat-config-summary" class="info-banner hidden"></div>
+
+              <form id="revenuecat-form" class="lookup-form">
+                <label class="field grow">
+                  <span>App User ID</span>
+                  <input
+                    id="revenuecat-app-user-id"
+                    name="appUserId"
+                    type="text"
+                    placeholder="Ex.: user_123"
+                    required
+                  />
+                </label>
+                <button class="button button-primary" type="submit">Consultar cliente</button>
+              </form>
+
+              <div id="revenuecat-feedback" class="feedback"></div>
+            </article>
           </div>
 
-          <div id="revenuecat-config-summary" class="info-banner hidden"></div>
+          <div class="results-board">
+            <section class="result-area result-area-rifa">
+              <div class="result-area-heading">
+                <p class="eyebrow">Resultado da rifa</p>
+                <h2>Dados operacionais</h2>
+              </div>
+              <div id="rifa-results" class="results-stack hidden"></div>
+            </section>
 
-          <form id="revenuecat-form" class="lookup-form">
-            <label class="field grow">
-              <span>App User ID</span>
-              <input
-                id="revenuecat-app-user-id"
-                name="appUserId"
-                type="text"
-                placeholder="Ex.: user_123"
-                required
-              />
-            </label>
-            <button class="button button-primary" type="submit">Consultar cliente</button>
-          </form>
-
-          <div id="revenuecat-feedback" class="feedback"></div>
-
-          <form id="rifa-form" class="lookup-form">
-            <label class="field grow">
-              <span>Rifa ID</span>
-              <input
-                id="rifa-id"
-                name="rifaId"
-                type="text"
-                placeholder="Ex.: Vh0pG8lYwqQ8k2..."
-                required
-              />
-            </label>
-            <button class="button button-primary" type="submit">Consultar rifa</button>
-          </form>
-
-          <div id="rifa-feedback" class="feedback"></div>
-          <div id="rifa-results" class="results-stack hidden"></div>
-
-          <div id="revenuecat-results" class="results-stack hidden"></div>
+            <section class="result-area result-area-revenuecat">
+              <div class="result-area-heading">
+                <p class="eyebrow">Resultado RevenueCat</p>
+                <h2>Cliente e assinaturas</h2>
+              </div>
+              <div id="revenuecat-results" class="results-stack hidden"></div>
+            </section>
+          </div>
         </section>
       </main>
     </div>
 
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
-    <script src="./config.js?v=2026-06-04-prod-auth-popup"></script>
+    <script src="./config.js?v=2026-06-04-auth-revenuecat-filter"></script>
     <!-- ?v= evita app.js antigo em cache após deploy; suba o valor quando mudar o front. -->
-    <script src="./app.js?v=2026-06-04-prod-auth-popup"></script>
+    <script src="./app.js?v=2026-06-04-auth-revenuecat-filter"></script>
   </body>
 </html>

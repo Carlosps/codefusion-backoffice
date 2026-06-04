@@ -266,8 +266,7 @@ Esse deploy publica no Hosting principal do projeto `code-fusion-backoffice` e s
 - O módulo Firestore assume, por padrão, uma coleção `users` com campo numérico `credits`. Ajuste isso antes de ir para produção.
 - Se `TARGET_FIRESTORE_SERVICE_ACCOUNT_JSON` não for usado, a conta de serviço das Functions do `code-fusion-backoffice` precisa ter permissão nos projetos `rifa-73864` e `rifa-digital-f21e7`.
 - O histórico do RevenueCat é derivado dos dados retornados pelo endpoint de subscriber, então ele mostra os eventos principais disponíveis nessa resposta.
-- A busca multi-projeto do RevenueCat ignora subscribers que parecem ter sido criados pela própria consulta; `first_seen` sozinho só conta quando não coincide com o `request_date` e não há sinais de subscriber fantasma.
-- O módulo RevenueCat exige escolha manual do projeto antes da consulta.
+- A busca multi-projeto do RevenueCat só mostra aplicativos com dados úteis do cliente, como assinatura, compra única, entitlement/acesso ou data original de compra; `first_seen` sozinho não conta como cliente encontrado.
 - O entitlement promocional manual pode vir de `entitlementId` em cada projeto; se omitido, o backend usa `REVENUECAT_PROMOTIONAL_PRO_ENTITLEMENT` e depois `pro`.
 - O backoffice pode conceder acesso manual direto no RevenueCat para clientes já encontrados na busca, sempre por projeto, com atalhos semanal, mensal, anual ou data final específica.
 - Se o dropdown do RevenueCat aparecer sem opções, revise `REVENUECAT_PROJECTS_JSON` em `functions/.secret.local` no ambiente local; a interface agora exibe um aviso direto quando essa configuração estiver ausente ou inválida.

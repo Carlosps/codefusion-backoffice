@@ -1,6 +1,6 @@
 (function bootstrap() {
   /** Incremente ao mudar o front; confirme no console se o deploy chegou ao browser. */
-  const BACKOFFICE_BUILD_ID = "2026-06-04-prod-auth-popup";
+  const BACKOFFICE_BUILD_ID = "2026-06-04-auth-revenuecat-filter";
   console.info("[backoffice] app.js carregado", BACKOFFICE_BUILD_ID, {
     href: typeof location !== "undefined" ? location.href : "",
   });
@@ -354,6 +354,7 @@
     nodes.authPanelTitle.textContent = title;
     nodes.authPanelDescription.textContent = description;
     nodes.loginButton.classList.toggle("hidden", !showLogin);
+    nodes.loginButton.disabled = !showLogin;
   }
 
   function renderIdentity() {
@@ -576,17 +577,18 @@
     }).join("");
 
     return `
-      <section class="result-section result-section-wide">
-        <div class="section-heading compact">
-          <h3>Editar dados</h3>
+      <form class="rifa-edit-form inline-edit-panel" data-rifa-edit-form="1" data-app-key="${escapeHtml(appKey)}">
+        <div>
+          <h3>Editar e-mail</h3>
+          <p>Atualize o e-mail operacional salvo no documento da rifa.</p>
         </div>
-        <form class="rifa-edit-form" data-rifa-edit-form="1" data-app-key="${escapeHtml(appKey)}">
+        <div class="inline-edit-fields">
           ${fieldsHtml}
-          <button class="button button-secondary" type="submit">
+          <button class="button button-primary" type="submit">
             Salvar e-mail
           </button>
-        </form>
-      </section>
+        </div>
+      </form>
     `;
   }
 
@@ -699,8 +701,6 @@
     const buyersCount = Array.isArray(data?.buyers) ? data.buyers.length : null;
     const imageLinks = data?.imageLinks;
 
-    const statusTone = unlocked === true ? "success" : unlocked === false ? "" : "";
-    const trialTone = freeTrialActive === true ? "success" : "";
     const photo = renderRifaPhoto(imageLinks);
     const toggleLabel = lockState === "unlocked" ? "Bloquear rifa" : "Desbloquear rifa";
     const actionAttrs = `data-app-key="${escapeHtml(appKey)}"`;
@@ -744,75 +744,110 @@
             ? row.value
             : JSON.stringify(row.value),
     }));
+    const statusLabel =
+      unlocked === true
+        ? "Rifa desbloqueada"
+        : unlocked === false
+          ? "Rifa bloqueada"
+          : "Status não informado";
+    const statusClass = unlocked === true ? "status-chip-success" : "status-chip-muted";
+    const freeTrialLabel = [
+      formatBoolean(freeTrialActive),
+      freeTrialExpiresAt ? `expira ${formatDate(freeTrialExpiresAt, "Não informado")}` : "",
+    ].filter(Boolean).join(" | ");
+    const unlockDetail = [
+      unlockedAt ? `em ${formatDate(unlockedAt, "Não informado")}` : "",
+      unlockReason ? `motivo: ${unlockReason}` : "",
+    ].filter(Boolean).join(" | ") || "Não informado";
 
     return `
-      <article class="customer-result">
-        <section class="summary-strip ${accentClass}">
-          <div class="summary-hero">
-            <div class="app-result-heading">
+      <article class="record-panel rifa-record ${accentClass}">
+        <header class="record-header">
+          <div class="app-result-heading">
               ${renderProjectAvatar(project, "project-avatar-large")}
-              <div class="summary-hero-copy">
-                <div class="status-chip-row">
-                  <span class="status-chip ${unlocked === true ? "status-chip-success" : "status-chip-muted"}">
-                    ${escapeHtml(unlocked === true ? "Rifa desbloqueada" : unlocked === false ? "Rifa bloqueada" : "Status não informado")}
-                  </span>
-                  ${lockControlsHtml}
-                  <div class="inline-days">
-                    <input
-                      class="input-compact"
-                      type="number"
-                      inputmode="numeric"
-                      min="1"
-                      step="1"
-                      placeholder="Dias"
-                      aria-label="Dias grátis"
-                      data-rifa-days-input="1"
-                    />
-                    <button
-                      class="button button-secondary button-compact"
-                      type="button"
-                      data-rifa-action="add-free-days"
-                      ${actionAttrs}
-                    >
-                      Adicionar dias grátis
-                    </button>
-                  </div>
-                </div>
+              <div class="record-title">
                 <h3>${escapeHtml(project.label)}</h3>
                 <p>
                   <span class="mono">${escapeHtml(match?.projectId || "-")}</span>
                   | ID <span class="mono">${escapeHtml(match?.rifaId || "-")}</span>
                 </p>
               </div>
-            </div>
-            <div class="summary-actions">
-              ${photo}
-            </div>
           </div>
+          <div class="record-status">
+            <span class="status-chip ${statusClass}">${escapeHtml(statusLabel)}</span>
+            ${photo}
+          </div>
+        </header>
 
-          <div class="summary-grid">
-            ${renderMetricCard("Documento", match?.firestoreDocumentId || "Não informado", match?.collection || "")}
-            ${renderMetricCard("Unlock price", unlockPrice ?? "Não informado")}
-            ${renderMetricCard("Unlocked", formatBoolean(unlocked), "", statusTone)}
-            ${renderMetricCard("Current profit", formatNumber(currentProfit))}
-            ${renderMetricCard("Free trial ativo", formatBoolean(freeTrialActive), "", trialTone)}
-            ${renderMetricCard("Free trial expira", formatDate(freeTrialExpiresAt, "Não informado"))}
-            ${renderMetricCard("Unlocked at", formatDate(unlockedAt, "Não informado"))}
-            ${renderMetricCard("Unlock reason", unlockReason ?? "Não informado")}
-            ${renderMetricCard(
-              "Compradores",
-              buyersCount === null ? "Não informado" : String(buyersCount),
-              reservedBuyersCount === null ? "" : `Reservados: ${reservedBuyersCount}`,
-            )}
+        <div class="record-actions status-chip-row">
+          ${lockControlsHtml}
+          <div class="inline-days">
+            <input
+              class="input-compact"
+              type="number"
+              inputmode="numeric"
+              min="1"
+              step="1"
+              placeholder="Dias"
+              aria-label="Dias grátis"
+              data-rifa-days-input="1"
+            />
+            <button
+              class="button button-secondary button-compact"
+              type="button"
+              data-rifa-action="add-free-days"
+              ${actionAttrs}
+            >
+              Adicionar dias grátis
+            </button>
           </div>
-        </section>
+        </div>
+
+        <dl class="info-grid">
+          <div>
+            <dt>Documento</dt>
+            <dd>
+              <strong class="mono">${escapeHtml(match?.firestoreDocumentId || "Não informado")}</strong>
+              <span>${escapeHtml(match?.collection || "Coleção não informada")}</span>
+            </dd>
+          </div>
+          <div>
+            <dt>Preço / receita</dt>
+            <dd>
+              <strong>${escapeHtml(unlockPrice ?? "Não informado")}</strong>
+              <span>Lucro atual: ${escapeHtml(formatNumber(currentProfit))}</span>
+            </dd>
+          </div>
+          <div>
+            <dt>Free trial</dt>
+            <dd>
+              <strong>${escapeHtml(freeTrialLabel || "Não informado")}</strong>
+            </dd>
+          </div>
+          <div>
+            <dt>Desbloqueio</dt>
+            <dd>
+              <strong>${escapeHtml(formatBoolean(unlocked))}</strong>
+              <span>${escapeHtml(unlockDetail)}</span>
+            </dd>
+          </div>
+          <div>
+            <dt>Compradores</dt>
+            <dd>
+              <strong>${escapeHtml(buyersCount === null ? "Não informado" : String(buyersCount))}</strong>
+              ${
+                reservedBuyersCount === null
+                  ? ""
+                  : `<span>Reservados: ${escapeHtml(String(reservedBuyersCount))}</span>`
+              }
+            </dd>
+          </div>
+        </dl>
 
         ${renderRifaEditSection(match)}
 
-        <section class="result-section result-section-wide">
-          <div class="section-heading compact">
-            <h3>Campos adicionais</h3>
-          </div>
+        <details class="raw-fields">
+          <summary>Outros campos do documento</summary>
           ${
             additionalRows.length
               ? renderTable(
@@ -824,7 +859,7 @@
                 )
               : '<div class="empty-state">Nenhum campo adicional encontrado.</div>'
           }
-        </section>
+        </details>
       </article>
     `;
   }
@@ -1163,13 +1198,6 @@
                 </p>
               </div>
             </div>
-            <div class="summary-actions">
-              ${
-                customer.managementUrl
-                  ? `<a class="button button-secondary" href="${escapeHtml(customer.managementUrl)}" target="_blank" rel="noreferrer">Gerenciar assinatura</a>`
-                  : ""
-              }
-            </div>
           </div>
 
           <div class="summary-grid">
@@ -1372,7 +1400,16 @@
   async function signIn() {
     const provider = new firebase.auth.GoogleAuthProvider();
     provider.setCustomParameters({ prompt: "select_account" });
-    await state.auth.signInWithPopup(provider);
+    nodes.loginButton.disabled = true;
+    setFeedback(nodes.authFeedback, "Abrindo login do Google...", null);
+
+    try {
+      await state.auth.signInWithPopup(provider);
+    } finally {
+      if (!state.user) {
+        nodes.loginButton.disabled = false;
+      }
+    }
   }
 
   function getSignInErrorMessage(error) {

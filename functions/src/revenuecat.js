@@ -510,17 +510,12 @@ function isGhostSubscriber(payload) {
 function hasRelevantSubscriberData(payload) {
   const subscriber = payload?.subscriber || {};
 
-  if (
+  return Boolean(
     subscriber.original_purchase_date ||
-    subscriber.management_url ||
     hasSubscriptions(subscriber) ||
     hasNonSubscriptions(subscriber) ||
-    hasEntitlements(subscriber)
-  ) {
-    return true;
-  }
-
-  return Boolean(subscriber.first_seen) && !isGhostSubscriber(payload);
+    hasEntitlements(subscriber),
+  );
 }
 
 function getLatestExpirationDate(items) {
