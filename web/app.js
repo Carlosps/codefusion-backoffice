@@ -612,16 +612,36 @@
     return { state: "unknown", chipUnlocked: null };
   }
 
-  function renderRifaResult(payload) {
-    if (!nodes.rifaResults) {
-      return;
+  function normalizeRifaMatches(payload) {
+    if (Array.isArray(payload?.matches)) {
+      return payload.matches;
     }
 
-    const data = payload?.data ?? {};
-    state.rifa = {
-      rifaId: payload?.rifaId || null,
-      data,
+    if (payload?.data) {
+      return [
+        {
+          appKey: "rifa-facil",
+          label: "Rifa Facil",
+          projectId: payload?.meta?.rifaLookupProjectId || "",
+          collection: payload?.meta?.rifaLookupCollection || "raffles",
+          firestoreDocumentId: payload?.meta?.firestoreDocumentId || payload?.rifaId || "",
+          rifaId: payload?.rifaId || "",
+          data: payload.data,
+        },
+      ];
+    }
+
+    return [];
+  }
+
+  function renderRifaMatchCard(match) {
+    const data = match?.data ?? {};
+    const appKey = match?.appKey || "";
+    const project = {
+      projectId: appKey,
+      label: match?.label || appKey || "Rifa",
     };
+    const accentClass = getProjectVisual(appKey)?.accentClass || "";
     const unlockPrice = data?.unlockPrice;
     const { state: lockState, chipUnlocked } = interpretRifaLockState(data);
     const unlocked = chipUnlocked;
@@ -638,6 +658,7 @@
     const trialTone = freeTrialActive === true ? "success" : "";
     const photo = renderRifaPhoto(imageLinks);
     const toggleLabel = lockState === "unlocked" ? "Bloquear rifa" : "Desbloquear rifa";
+    const actionAttrs = `data-app-key="${escapeHtml(appKey)}"`;
     const lockControlsHtml =
       lockState === "unknown"
         ? `
@@ -645,6 +666,7 @@
                     class="button button-secondary button-compact"
                     type="button"
                     data-rifa-action="lock-rifa"
+                    ${actionAttrs}
                   >
                     Bloquear rifa
                   </button>
@@ -652,6 +674,7 @@
                     class="button button-secondary button-compact"
                     type="button"
                     data-rifa-action="unlock-rifa"
+                    ${actionAttrs}
                   >
                     Desbloquear rifa
                   </button>
@@ -661,6 +684,7 @@
                     class="button button-secondary button-compact"
                     type="button"
                     data-rifa-action="toggle-lock"
+                    ${actionAttrs}
                   >
                     ${escapeHtml(toggleLabel)}
                   </button>
@@ -676,12 +700,12 @@
             : JSON.stringify(row.value),
     }));
 
-    nodes.rifaResults.innerHTML = `
+    return `
       <article class="customer-result">
-        <section class="summary-strip theme-royal">
+        <section class="summary-strip ${accentClass}">
           <div class="summary-hero">
             <div class="app-result-heading">
-              ${photo}
+              ${renderProjectAvatar(project, "project-avatar-large")}
               <div class="summary-hero-copy">
                 <div class="status-chip-row">
                   <span class="status-chip ${unlocked === true ? "status-chip-success" : "status-chip-muted"}">
@@ -703,20 +727,26 @@
                       class="button button-secondary button-compact"
                       type="button"
                       data-rifa-action="add-free-days"
+                      ${actionAttrs}
                     >
                       Adicionar dias grátis
                     </button>
                   </div>
                 </div>
-                <h3>Rifa</h3>
+                <h3>${escapeHtml(project.label)}</h3>
                 <p>
-                  ID <span class="mono">${escapeHtml(payload?.rifaId || "-")}</span>
+                  <span class="mono">${escapeHtml(match?.projectId || "-")}</span>
+                  | ID <span class="mono">${escapeHtml(match?.rifaId || "-")}</span>
                 </p>
               </div>
+            </div>
+            <div class="summary-actions">
+              ${photo}
             </div>
           </div>
 
           <div class="summary-grid">
+            ${renderMetricCard("Documento", match?.firestoreDocumentId || "Não informado", match?.collection || "")}
             ${renderMetricCard("Unlock price", unlockPrice ?? "Não informado")}
             ${renderMetricCard("Unlocked", formatBoolean(unlocked), "", statusTone)}
             ${renderMetricCard("Current profit", formatNumber(currentProfit))}
@@ -750,6 +780,22 @@
         </section>
       </article>
     `;
+  }
+
+  function renderRifaResult(payload) {
+    if (!nodes.rifaResults) {
+      return;
+    }
+
+    const matches = normalizeRifaMatches(payload);
+    state.rifa = {
+      rifaId: payload?.rifaId || matches[0]?.rifaId || null,
+      matches,
+    };
+
+    nodes.rifaResults.innerHTML = matches.length
+      ? matches.map(renderRifaMatchCard).join("")
+      : '<div class="empty-state">Nenhuma rifa encontrada.</div>';
     showElement(nodes.rifaResults);
   }
 
@@ -1346,13 +1392,20 @@
 
       if (rifaAction === "toggle-lock" || rifaAction === "lock-rifa" || rifaAction === "unlock-rifa") {
         const rifaId = state.rifa?.rifaId;
+        const appKey = button.dataset.appKey || "";
+        const match = state.rifa?.matches?.find((item) => item.appKey === appKey);
         if (!rifaId) {
           logRifa("abortado: state.rifa.rifaId vazio (consulte a rifa de novo)");
           setFeedback(nodes.rifaFeedback, "Rifa ID nao encontrado. Consulte a rifa novamente.", "error");
           return;
         }
+        if (!match) {
+          logRifa("abortado: appKey da rifa nao encontrado", { appKey });
+          setFeedback(nodes.rifaFeedback, "App da rifa nao encontrado. Consulte a rifa novamente.", "error");
+          return;
+        }
 
-        const lockMeta = interpretRifaLockState(state.rifa?.data);
+        const lockMeta = interpretRifaLockState(match.data);
         let endpoint;
         let actionLabel;
 
@@ -1378,11 +1431,11 @@
           return;
         }
 
-        logRifa(`iniciando ${actionLabel}`, { endpoint, rifaId, lockMeta });
-        setFeedback(nodes.rifaFeedback, `Tentando ${actionLabel} rifa...`, null);
+        logRifa(`iniciando ${actionLabel}`, { endpoint, rifaId, appKey, lockMeta });
+        setFeedback(nodes.rifaFeedback, `Tentando ${actionLabel} rifa em ${match.label || appKey}...`, null);
         button.disabled = true;
         try {
-          const result = await apiRequest(endpoint, { method: "POST", body: {} });
+          const result = await apiRequest(endpoint, { method: "POST", body: { appKey } });
           const payload = await apiRequest(`/rifa/${encodeURIComponent(rifaId)}`);
           renderRifaResult(payload);
           setFeedback(nodes.rifaFeedback, result?.result?.message || "Operacao concluida com sucesso.", "success");
@@ -1398,6 +1451,8 @@
 
       if (rifaAction === "add-free-days") {
         const rifaId = state.rifa?.rifaId;
+        const appKey = button.dataset.appKey || "";
+        const match = state.rifa?.matches?.find((item) => item.appKey === appKey);
         const wrapper = button.closest(".status-chip-row") || nodes.rifaResults;
         const input = wrapper?.querySelector("[data-rifa-days-input]");
         const raw = input?.value?.trim();
@@ -1408,6 +1463,11 @@
           setFeedback(nodes.rifaFeedback, "Rifa ID nao encontrado. Consulte a rifa novamente.", "error");
           return;
         }
+        if (!match) {
+          logRifa("add-free-days abortado: appKey nao encontrado", { appKey });
+          setFeedback(nodes.rifaFeedback, "App da rifa nao encontrado. Consulte a rifa novamente.", "error");
+          return;
+        }
 
         if (!Number.isFinite(days) || !Number.isInteger(days) || days <= 0) {
           logRifa("add-free-days abortado: dias inválidos", { raw, days });
@@ -1415,13 +1475,13 @@
           return;
         }
 
-        logRifa("add-free-days", { rifaId, days });
-        setFeedback(nodes.rifaFeedback, `Adicionando ${days} dia(s) gratis...`, null);
+        logRifa("add-free-days", { rifaId, appKey, days });
+        setFeedback(nodes.rifaFeedback, `Adicionando ${days} dia(s) gratis em ${match.label || appKey}...`, null);
         button.disabled = true;
         try {
           const result = await apiRequest(`/rifa/${encodeURIComponent(rifaId)}/free-trial`, {
             method: "POST",
-            body: { days, trialDays: days },
+            body: { appKey, days, trialDays: days },
           });
           const payload = await apiRequest(`/rifa/${encodeURIComponent(rifaId)}`);
           renderRifaResult(payload);
@@ -1482,6 +1542,9 @@
 
     firebase.initializeApp(config.firebase);
     state.auth = firebase.auth();
+    if (config.authEmulatorUrl) {
+      state.auth.useEmulator(config.authEmulatorUrl, { disableWarnings: true });
+    }
 
     state.auth.onAuthStateChanged(async (user) => {
       if (!user) {

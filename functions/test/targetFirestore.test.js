@@ -5,6 +5,8 @@ const { HttpError } = require("../src/errors");
 const {
   getTargetFirestoreConfig,
   getRifaLookupConfig,
+  getRifaLookupTargets,
+  resolveRifaLookupTarget,
   getRifaLockWriteConfig,
 } = require("../src/targetFirestore");
 
@@ -41,43 +43,140 @@ test("getTargetFirestoreConfig rejects invalid JSON", () => {
   });
 });
 
-test("getRifaLookupConfig defaults to target project and raffles collection", () => {
+test("getRifaLookupTargets defaults to Rifa Facil and Rifa Digital", () => {
   process.env.TARGET_FIRESTORE_PROJECT_ID = "rifa-73864";
   delete process.env.TARGET_FIRESTORE_SERVICE_ACCOUNT_JSON;
   delete process.env.RIFA_LOOKUP_PROJECT_ID;
   delete process.env.RIFA_LOOKUP_COLLECTION;
+  delete process.env.RIFA_LOOKUP_MATCH_FIELD;
+  delete process.env.RIFA_LOOKUP_TARGETS;
 
-  const config = getRifaLookupConfig();
+  const targets = getRifaLookupTargets();
 
-  assert.equal(config.projectId, "rifa-73864");
-  assert.equal(config.collection, "raffles");
-  assert.equal(config.matchField, "");
+  assert.deepEqual(
+    targets.map(({ appKey, label, projectId, collection, matchField }) => ({
+      appKey,
+      label,
+      projectId,
+      collection,
+      matchField,
+    })),
+    [
+      {
+        appKey: "rifa-facil",
+        label: "Rifa Facil",
+        projectId: "rifa-73864",
+        collection: "raffles",
+        matchField: "",
+      },
+      {
+        appKey: "rifa-digital",
+        label: "Rifa Digital",
+        projectId: "rifa-digital-f21e7",
+        collection: "raffles",
+        matchField: "",
+      },
+    ],
+  );
 });
 
-test("getRifaLookupConfig respects overrides", () => {
-  process.env.TARGET_FIRESTORE_PROJECT_ID = "rifa-73864";
-  delete process.env.TARGET_FIRESTORE_SERVICE_ACCOUNT_JSON;
-  process.env.RIFA_LOOKUP_PROJECT_ID = "rifa-digital-f21e7";
-  process.env.RIFA_LOOKUP_COLLECTION = "rifas";
-  process.env.RIFA_LOOKUP_MATCH_FIELD = "rifaId";
-
-  const config = getRifaLookupConfig();
-
-  assert.equal(config.projectId, "rifa-digital-f21e7");
-  assert.equal(config.collection, "rifas");
-  assert.equal(config.matchField, "rifaId");
-});
-
-test("getRifaLookupConfig clears matchField when unset", () => {
-  process.env.TARGET_FIRESTORE_PROJECT_ID = "rifa-73864";
-  delete process.env.TARGET_FIRESTORE_SERVICE_ACCOUNT_JSON;
+test("getRifaLookupConfig returns first configured target for compatibility", () => {
+  delete process.env.RIFA_LOOKUP_TARGETS;
   delete process.env.RIFA_LOOKUP_PROJECT_ID;
   delete process.env.RIFA_LOOKUP_COLLECTION;
   delete process.env.RIFA_LOOKUP_MATCH_FIELD;
 
   const config = getRifaLookupConfig();
 
-  assert.equal(config.matchField, "");
+  assert.equal(config.projectId, "rifa-73864");
+  assert.equal(config.collection, "raffles");
+  assert.equal(config.appKey, "rifa-facil");
+});
+
+test("getRifaLookupTargets respects JSON overrides", () => {
+  process.env.TARGET_FIRESTORE_PROJECT_ID = "rifa-73864";
+  delete process.env.TARGET_FIRESTORE_SERVICE_ACCOUNT_JSON;
+  delete process.env.RIFA_LOOKUP_PROJECT_ID;
+  delete process.env.RIFA_LOOKUP_COLLECTION;
+  delete process.env.RIFA_LOOKUP_MATCH_FIELD;
+  process.env.RIFA_LOOKUP_TARGETS = JSON.stringify([
+    {
+      appKey: "custom",
+      label: "Custom App",
+      projectId: "custom-project",
+      collection: "customRaffles",
+      matchField: "rifaId",
+    },
+  ]);
+
+  const targets = getRifaLookupTargets();
+
+  assert.equal(targets.length, 1);
+  assert.equal(targets[0].appKey, "custom");
+  assert.equal(targets[0].label, "Custom App");
+  assert.equal(targets[0].projectId, "custom-project");
+  assert.equal(targets[0].collection, "customRaffles");
+  assert.equal(targets[0].matchField, "rifaId");
+
+  delete process.env.RIFA_LOOKUP_TARGETS;
+});
+
+test("getRifaLookupTargets keeps legacy match field override", () => {
+  process.env.TARGET_FIRESTORE_PROJECT_ID = "rifa-73864";
+  delete process.env.TARGET_FIRESTORE_SERVICE_ACCOUNT_JSON;
+  process.env.RIFA_LOOKUP_PROJECT_ID = "rifa-digital-f21e7";
+  process.env.RIFA_LOOKUP_COLLECTION = "rifas";
+  process.env.RIFA_LOOKUP_MATCH_FIELD = "id";
+  delete process.env.RIFA_LOOKUP_TARGETS;
+
+  const targets = getRifaLookupTargets();
+
+  assert.equal(targets.length, 1);
+  assert.equal(targets[0].projectId, "rifa-digital-f21e7");
+  assert.equal(targets[0].collection, "rifas");
+  assert.equal(targets[0].matchField, "id");
+});
+
+test("resolveRifaLookupTarget keeps empty appKey compatible for single target config", () => {
+  process.env.TARGET_FIRESTORE_PROJECT_ID = "rifa-73864";
+  delete process.env.TARGET_FIRESTORE_SERVICE_ACCOUNT_JSON;
+  process.env.RIFA_LOOKUP_PROJECT_ID = "rifa-digital-f21e7";
+  delete process.env.RIFA_LOOKUP_COLLECTION;
+  delete process.env.RIFA_LOOKUP_MATCH_FIELD;
+  delete process.env.RIFA_LOOKUP_TARGETS;
+
+  const target = resolveRifaLookupTarget("");
+
+  assert.equal(target.appKey, "rifa-facil");
+  assert.equal(target.projectId, "rifa-digital-f21e7");
+});
+
+test("resolveRifaLookupTarget rejects invalid appKey", () => {
+  process.env.TARGET_FIRESTORE_PROJECT_ID = "rifa-73864";
+  delete process.env.TARGET_FIRESTORE_SERVICE_ACCOUNT_JSON;
+  delete process.env.RIFA_LOOKUP_PROJECT_ID;
+  delete process.env.RIFA_LOOKUP_COLLECTION;
+  delete process.env.RIFA_LOOKUP_TARGETS;
+
+  assert.throws(() => resolveRifaLookupTarget("desconhecido"), (error) => {
+    assert.ok(error instanceof HttpError);
+    assert.equal(error.status, 400);
+    assert.match(error.message, /App da rifa invalido/);
+    assert.deepEqual(error.details.allowedAppKeys, ["rifa-facil", "rifa-digital"]);
+    return true;
+  });
+});
+
+test("resolveRifaLookupTarget returns only allowed server-side targets", () => {
+  delete process.env.RIFA_LOOKUP_PROJECT_ID;
+  delete process.env.RIFA_LOOKUP_COLLECTION;
+  delete process.env.RIFA_LOOKUP_TARGETS;
+
+  const target = resolveRifaLookupTarget("rifa-digital");
+
+  assert.equal(target.appKey, "rifa-digital");
+  assert.equal(target.projectId, "rifa-digital-f21e7");
+  assert.equal(target.collection, "raffles");
 });
 
 test("getRifaLockWriteConfig defaults unlocked field and no blocked mirror", () => {

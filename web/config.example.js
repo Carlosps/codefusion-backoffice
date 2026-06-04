@@ -9,4 +9,6 @@ window.BACKOFFICE_CONFIG = {
     measurementId: "G-N2TY29KCNR",
   },
   functionsBaseUrl: "/api",
+  // Use apenas em desenvolvimento local com Firebase Auth Emulator.
+  // authEmulatorUrl: "http://127.0.0.1:9099",
 };

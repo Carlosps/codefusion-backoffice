@@ -9,7 +9,7 @@ const FIREBASE_ARGS = [
   "--project",
   FIREBASE_PROJECT_ID,
   "--only",
-  "hosting,functions,firestore",
+  "hosting,functions,firestore,auth",
 ];
 
 function getFirebaseCommand() {

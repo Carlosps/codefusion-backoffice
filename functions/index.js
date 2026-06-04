@@ -32,7 +32,8 @@ const {
 const {
   getTargetFirestoreDb,
   getTargetFirestoreConfig,
-  getRifaLookupConfig,
+  getRifaLookupTargets,
+  resolveRifaLookupTarget,
   getRifaLookupFirestoreDb,
   getRifaLockWriteConfig,
 } = require("./src/targetFirestore");
@@ -88,11 +89,11 @@ function serializeFirestoreValue(value) {
   return value;
 }
 
-function rethrowRifaFirestorePermissionError(error, kind = "write") {
+function rethrowRifaFirestorePermissionError(error, kind = "write", target = null) {
   const code = error?.code || error?.status;
   if (code === 7 || code === "PERMISSION_DENIED" || String(code).includes("permission")) {
-    const rifaLookup = getRifaLookupConfig();
     const targetConfig = getTargetFirestoreConfig();
+    const lookupTarget = target || getRifaLookupTargets()[0];
     const serviceAccountEmail =
       targetConfig?.serviceAccount?.client_email ||
       targetConfig?.serviceAccount?.clientEmail ||
@@ -103,15 +104,15 @@ function rethrowRifaFirestorePermissionError(error, kind = "write") {
         .trim()
         .toLowerCase() === "true";
 
-    const readMessage = `Sem permissao para ler rifas no projeto ${rifaLookup.projectId}. No Google Cloud, abra esse projeto > IAM e conceda a service account usada pela API um papel com acesso ao Firestore (ex.: Cloud Datastore User).`;
-    const writeMessage = `Sem permissao para gravar rifas no projeto ${rifaLookup.projectId}. Se o GET /rifa funciona mas bloquear/desbloquear nao, a service account das Functions provavelmente so tem leitura: no IAM desse projeto, conceda escrita no Firestore (ex.: Cloud Datastore User).`;
+    const readMessage = `Sem permissao para ler rifas no projeto ${lookupTarget.projectId}. No Google Cloud, abra esse projeto > IAM e conceda a service account usada pela API um papel com acesso ao Firestore (ex.: Cloud Datastore User).`;
+    const writeMessage = `Sem permissao para gravar rifas no projeto ${lookupTarget.projectId}. Se o GET /rifa funciona mas bloquear/desbloquear nao, a service account das Functions provavelmente so tem leitura: no IAM desse projeto, conceda escrita no Firestore (ex.: Cloud Datastore User).`;
 
     const message = kind === "read" ? readMessage : writeMessage;
 
     const baseDetails = {
-      rifaLookupProjectId: rifaLookup.projectId,
-      rifaLookupCollection: rifaLookup.collection,
-      rifaLookupMatchField: rifaLookup.matchField || null,
+      rifaLookupAppKey: lookupTarget.appKey,
+      rifaLookupProjectId: lookupTarget.projectId,
+      rifaLookupCollection: lookupTarget.collection,
     };
 
     throw new HttpError(
@@ -124,6 +125,21 @@ function rethrowRifaFirestorePermissionError(error, kind = "write") {
   throw error;
 }
 
+function isRifaFirestorePermissionError(error) {
+  const code = error?.code || error?.status;
+  return code === 7 || code === "PERMISSION_DENIED" || String(code).includes("permission");
+}
+
+function serializeRifaTarget(target) {
+  return {
+    appKey: target.appKey,
+    label: target.label,
+    projectId: target.projectId,
+    collection: target.collection,
+    matchField: target.matchField || null,
+  };
+}
+
 async function getRifa(req, res, rifaId) {
   await requireUser(req);
 
@@ -133,45 +149,58 @@ async function getRifa(req, res, rifaId) {
   }
 
   const targetConfig = getTargetFirestoreConfig();
-  const rifaLookup = getRifaLookupConfig();
-  let docSnap;
-  try {
-    const db = getRifaLookupFirestoreDb();
-    const col = db.collection(rifaLookup.collection);
+  const targets = getRifaLookupTargets();
+  const matches = [];
+  const partialErrors = [];
 
-    if (rifaLookup.matchField) {
-      const qs = await col.where(rifaLookup.matchField, "==", normalizedId).limit(1).get();
-      docSnap = qs.empty ? null : qs.docs[0];
-    } else {
-      const snap = await col.doc(normalizedId).get();
-      docSnap = snap.exists ? snap : null;
+  for (const target of targets) {
+    let docSnap;
+    try {
+      docSnap = await getRifaDocSnapshot(normalizedId, target);
+    } catch (error) {
+      if (isRifaFirestorePermissionError(error)) {
+        const code = error?.code || error?.status;
+        const serviceAccountEmail =
+          targetConfig?.serviceAccount?.client_email ||
+          targetConfig?.serviceAccount?.clientEmail ||
+          null;
+
+        logger.warn("Rifa lookup permission denied", {
+          rifaLookupAppKey: target.appKey,
+          rifaLookupProjectId: target.projectId,
+          rifaLookupCollection: target.collection,
+          serviceAccountEmail,
+          code,
+        });
+
+        partialErrors.push({
+          ...serializeRifaTarget(target),
+          status: 403,
+          code,
+          message: "Sem permissao para ler rifas neste projeto.",
+        });
+        continue;
+      }
+      throw error;
     }
-  } catch (error) {
-    const code = error?.code || error?.status;
-    if (code === 7 || code === "PERMISSION_DENIED" || String(code).includes("permission")) {
-      const serviceAccountEmail =
-        targetConfig?.serviceAccount?.client_email ||
-        targetConfig?.serviceAccount?.clientEmail ||
-        null;
 
-      logger.warn("Rifa lookup permission denied", {
-        rifaLookupProjectId: rifaLookup.projectId,
-        rifaLookupCollection: rifaLookup.collection,
-        rifaLookupMatchField: rifaLookup.matchField || null,
-        serviceAccountEmail,
-        code,
-      });
-
-      rethrowRifaFirestorePermissionError(error, "read");
+    if (docSnap) {
+      matches.push(serializeRifaMatch(normalizedId, target, docSnap));
     }
-    throw error;
   }
-  if (!docSnap) {
+
+  if (!matches.length) {
+    if (partialErrors.length) {
+      rethrowRifaFirestorePermissionError(
+        { code: partialErrors[0].code || "PERMISSION_DENIED" },
+        "read",
+        targets.find((target) => target.appKey === partialErrors[0].appKey) || targets[0],
+      );
+    }
+
     throw new HttpError(404, "Rifa nao encontrada.", {
-      rifaLookupProjectId: rifaLookup.projectId,
-      collection: rifaLookup.collection,
-      rifaLookupMatchField: rifaLookup.matchField || null,
       lookupValue: normalizedId,
+      searchedTargets: targets.map(serializeRifaTarget),
       targetFirestoreDisableEmulator: targetConfig.disableEmulator,
     });
   }
@@ -180,28 +209,45 @@ async function getRifa(req, res, rifaId) {
     ok: true,
     rifaId: normalizedId,
     meta: {
-      rifaLookupProjectId: rifaLookup.projectId,
-      rifaLookupCollection: rifaLookup.collection,
-      rifaLookupMatchField: rifaLookup.matchField || null,
-      firestoreDocumentId: docSnap.id,
+      searchedTargets: targets.map(serializeRifaTarget),
+      partialErrors,
       targetFirestoreDisableEmulator: targetConfig.disableEmulator,
     },
-    data: serializeFirestoreValue(docSnap.data() || {}),
+    matches,
   });
 }
 
-async function getRifaDocSnapshot(normalizedId) {
-  const rifaLookup = getRifaLookupConfig();
-  const db = getRifaLookupFirestoreDb();
-  const col = db.collection(rifaLookup.collection);
+function serializeRifaMatch(normalizedId, target, docSnap) {
+  return {
+    appKey: target.appKey,
+    label: target.label,
+    projectId: target.projectId,
+    collection: target.collection,
+    firestoreDocumentId: docSnap.id,
+    rifaId: normalizedId,
+    data: serializeFirestoreValue(docSnap.data() || {}),
+  };
+}
 
-  if (rifaLookup.matchField) {
-    const qs = await col.where(rifaLookup.matchField, "==", normalizedId).limit(1).get();
+async function getRifaDocSnapshot(normalizedId, target) {
+  const db = getRifaLookupFirestoreDb(target);
+  const col = db.collection(target.collection);
+
+  if (target.matchField) {
+    const qs = await col.where(target.matchField, "==", normalizedId).limit(1).get();
     return qs.empty ? null : qs.docs[0];
   }
 
   const snap = await col.doc(normalizedId).get();
   return snap.exists ? snap : null;
+}
+
+async function getRifaWriteTargetFromBody(req) {
+  const body = await readJsonBody(req);
+  return {
+    body,
+    target: resolveRifaLookupTarget(body?.appKey),
+  };
 }
 
 function validateRifaId(value) {
@@ -247,12 +293,12 @@ function buildRifaLockPatch(locked) {
   return patch;
 }
 
-async function applyRifaLockedState(normalizedId, locked) {
+async function applyRifaLockedState(normalizedId, target, locked) {
   let snap;
   try {
-    snap = await getRifaDocSnapshot(normalizedId);
+    snap = await getRifaDocSnapshot(normalizedId, target);
   } catch (error) {
-    rethrowRifaFirestorePermissionError(error, "write");
+    rethrowRifaFirestorePermissionError(error, "write", target);
   }
 
   if (!snap) {
@@ -262,10 +308,20 @@ async function applyRifaLockedState(normalizedId, locked) {
   try {
     await snap.ref.update(buildRifaLockPatch(locked));
   } catch (error) {
-    rethrowRifaFirestorePermissionError(error, "write");
+    rethrowRifaFirestorePermissionError(error, "write", target);
   }
 
   return snap;
+}
+
+function buildRifaAuditTarget(normalizedId, target, snap) {
+  return {
+    rifaId: normalizedId,
+    appKey: target.appKey,
+    projectId: target.projectId,
+    collection: target.collection,
+    docPath: snap.ref.path,
+  };
 }
 
 async function lockRifa(req, res, rifaId) {
@@ -275,19 +331,25 @@ async function lockRifa(req, res, rifaId) {
   });
 
   const normalizedId = validateRifaId(rifaId);
-  const snap = await applyRifaLockedState(normalizedId, true);
+  const { target } = await getRifaWriteTargetFromBody(req);
+  const snap = await applyRifaLockedState(normalizedId, target, true);
 
   await logAuditEvent({
     module: "rifa",
     action: "lock",
     actor,
-    target: { rifaId: normalizedId, docPath: snap.ref.path },
+    target: buildRifaAuditTarget(normalizedId, target, snap),
     status: "success",
   });
 
   sendJson(res, 200, {
     ok: true,
-    result: { message: "Rifa bloqueada com sucesso.", rifaId: normalizedId },
+    result: {
+      message: "Rifa bloqueada com sucesso.",
+      rifaId: normalizedId,
+      appKey: target.appKey,
+      projectId: target.projectId,
+    },
   });
 }
 
@@ -298,19 +360,25 @@ async function unlockRifa(req, res, rifaId) {
   });
 
   const normalizedId = validateRifaId(rifaId);
-  const snap = await applyRifaLockedState(normalizedId, false);
+  const { target } = await getRifaWriteTargetFromBody(req);
+  const snap = await applyRifaLockedState(normalizedId, target, false);
 
   await logAuditEvent({
     module: "rifa",
     action: "unlock",
     actor,
-    target: { rifaId: normalizedId, docPath: snap.ref.path },
+    target: buildRifaAuditTarget(normalizedId, target, snap),
     status: "success",
   });
 
   sendJson(res, 200, {
     ok: true,
-    result: { message: "Rifa desbloqueada com sucesso.", rifaId: normalizedId },
+    result: {
+      message: "Rifa desbloqueada com sucesso.",
+      rifaId: normalizedId,
+      appKey: target.appKey,
+      projectId: target.projectId,
+    },
   });
 }
 
@@ -326,15 +394,15 @@ async function addRifaFreeTrialDays(req, res, rifaId) {
   });
 
   const normalizedId = validateRifaId(rifaId);
-  const body = await readJsonBody(req);
+  const { body, target } = await getRifaWriteTargetFromBody(req);
   const daysRaw = body?.days ?? body?.trialDays;
   const days = validateFreeTrialDays(daysRaw);
 
   let snap;
   try {
-    snap = await getRifaDocSnapshot(normalizedId);
+    snap = await getRifaDocSnapshot(normalizedId, target);
   } catch (error) {
-    rethrowRifaFirestorePermissionError(error, "write");
+    rethrowRifaFirestorePermissionError(error, "write", target);
   }
 
   if (!snap) {
@@ -377,14 +445,14 @@ async function addRifaFreeTrialDays(req, res, rifaId) {
       };
     });
   } catch (error) {
-    rethrowRifaFirestorePermissionError(error, "write");
+    rethrowRifaFirestorePermissionError(error, "write", target);
   }
 
   await logAuditEvent({
     module: "rifa",
     action: "add_free_trial_days",
     actor,
-    target: { rifaId: normalizedId, docPath: snap.ref.path },
+    target: buildRifaAuditTarget(normalizedId, target, snap),
     status: "success",
     metadata: { days, expiresAt: result.expiresAt },
   });
@@ -394,6 +462,8 @@ async function addRifaFreeTrialDays(req, res, rifaId) {
     result: {
       message: "Dias gratis adicionados com sucesso.",
       rifaId: normalizedId,
+      appKey: target.appKey,
+      projectId: target.projectId,
       days,
       expiresAt: result.expiresAt,
     },
