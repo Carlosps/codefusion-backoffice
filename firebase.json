@@ -3,6 +3,7 @@
     "source": "functions"
   },
   "hosting": {
+    "site": "code-fusion-backoffice",
     "public": "web",
     "ignore": [
       "firebase.json",

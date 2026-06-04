@@ -1,6 +1,6 @@
 (function bootstrap() {
   /** Incremente ao mudar o front; confirme no console se o deploy chegou ao browser. */
-  const BACKOFFICE_BUILD_ID = "2026-06-04-rifa-edit-fields";
+  const BACKOFFICE_BUILD_ID = "2026-06-04-prod-auth-popup";
   console.info("[backoffice] app.js carregado", BACKOFFICE_BUILD_ID, {
     href: typeof location !== "undefined" ? location.href : "",
   });
@@ -1371,7 +1371,20 @@
 
   async function signIn() {
     const provider = new firebase.auth.GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: "select_account" });
     await state.auth.signInWithPopup(provider);
+  }
+
+  function getSignInErrorMessage(error) {
+    if (error?.code === "auth/popup-blocked") {
+      return "O navegador bloqueou o pop-up do Google. Libere pop-ups para code-fusion-backoffice.web.app e tente novamente.";
+    }
+
+    if (error?.code === "auth/popup-closed-by-user") {
+      return "Login cancelado. Clique em Entrar com Google para tentar novamente.";
+    }
+
+    return error?.message || "Não foi possível iniciar o login com Google.";
   }
 
   async function signOut() {
@@ -1383,7 +1396,7 @@
       try {
         await signIn();
       } catch (error) {
-        setFeedback(nodes.authFeedback, error.message, "error");
+        setFeedback(nodes.authFeedback, getSignInErrorMessage(error), "error");
       }
     });
 
@@ -1647,8 +1660,10 @@
 
     firebase.initializeApp(config.firebase);
     state.auth = firebase.auth();
-    if (config.authEmulatorUrl) {
+    if (config.authEmulatorUrl && isLocalEnvironment()) {
       state.auth.useEmulator(config.authEmulatorUrl, { disableWarnings: true });
+    } else if (config.authEmulatorUrl) {
+      console.warn("[backoffice] authEmulatorUrl ignorado fora do ambiente local.");
     }
 
     state.auth.onAuthStateChanged(async (user) => {
@@ -1667,4 +1682,12 @@
 
   attachEvents();
   initFirebase();
+
+  function isLocalEnvironment() {
+    return (
+      window.location.hostname === "localhost" ||
+      window.location.hostname === "127.0.0.1" ||
+      window.location.hostname === "::1"
+    );
+  }
 })();
