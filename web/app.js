@@ -1,6 +1,6 @@
 (function bootstrap() {
   /** Incremente ao mudar o front; confirme no console se o deploy chegou ao browser. */
-  const BACKOFFICE_BUILD_ID = "2026-04-11-rifa-logs";
+  const BACKOFFICE_BUILD_ID = "2026-06-04-rifa-edit-fields";
   console.info("[backoffice] app.js carregado", BACKOFFICE_BUILD_ID, {
     href: typeof location !== "undefined" ? location.href : "",
   });
@@ -24,7 +24,17 @@
       iconSrc: "./assets/app-icons/rifa-digital.png",
       accentClass: "theme-royal",
     },
+    "controle-estoque": {
+      iconSrc: "./assets/app-icons/controle-estoque.png",
+    },
+    "gerador-contratos": {
+      iconSrc: "./assets/app-icons/gerador-contratos.png",
+    },
   };
+
+  const RIFA_EDITABLE_FIELDS = [
+    { field: "email", label: "E-mail", type: "email" },
+  ];
 
   const relativeTimeFormatter = new Intl.RelativeTimeFormat("pt-BR", {
     numeric: "auto",
@@ -545,6 +555,41 @@
     `;
   }
 
+  function renderRifaEditSection(match) {
+    const data = match?.data ?? {};
+    const appKey = match?.appKey || "";
+    const fieldsHtml = RIFA_EDITABLE_FIELDS.map((config) => {
+      const value = data?.[config.field] ?? "";
+      return `
+        <label class="field grow">
+          <span>${escapeHtml(config.label)}</span>
+          <input
+            name="${escapeHtml(config.field)}"
+            type="${escapeHtml(config.type || "text")}"
+            value="${escapeHtml(value)}"
+            autocomplete="off"
+            required
+            data-rifa-edit-input="${escapeHtml(config.field)}"
+          />
+        </label>
+      `;
+    }).join("");
+
+    return `
+      <section class="result-section result-section-wide">
+        <div class="section-heading compact">
+          <h3>Editar dados</h3>
+        </div>
+        <form class="rifa-edit-form" data-rifa-edit-form="1" data-app-key="${escapeHtml(appKey)}">
+          ${fieldsHtml}
+          <button class="button button-secondary" type="submit">
+            Salvar e-mail
+          </button>
+        </form>
+      </section>
+    `;
+  }
+
   function flattenRifaData(data, prefix = "") {
     const rows = [];
     const excludedKeys = new Set([
@@ -762,6 +807,8 @@
           </div>
         </section>
 
+        ${renderRifaEditSection(match)}
+
         <section class="result-section result-section-wide">
           <div class="section-heading compact">
             <h3>Campos adicionais</h3>
@@ -835,27 +882,33 @@
 
   function getManualAccessPresentation(customer) {
     const manualAccess = customer.manualProAccess || null;
+    const entitlementId = manualAccess?.entitlementId || customer.project?.entitlementId || "pro";
+    const entitlementLabel = `entitlement ${entitlementId}`;
+
     if (!manualAccess) {
       return {
-        title: "Nenhum Pro manual ativo",
-        detail: "Conceda acesso promocional ao entitlement Pro para este App User ID.",
+        title: "Nenhum acesso manual ativo",
+        detail: `Conceda acesso promocional ao ${entitlementLabel} para este App User ID.`,
         tone: "",
+        entitlementId,
       };
     }
 
     const expiration = getExpirationPresentation(manualAccess, "Sem data de expiração");
     if (manualAccess.isActive) {
       return {
-        title: "Pro manual ativo",
-        detail: [expiration.primary, expiration.secondary].filter(Boolean).join(" | "),
+        title: "Acesso manual ativo",
+        detail: [entitlementLabel, expiration.primary, expiration.secondary].filter(Boolean).join(" | "),
         tone: "success",
+        entitlementId,
       };
     }
 
     return {
-      title: "Ultimo Pro manual expirado",
-      detail: [expiration.primary, expiration.secondary].filter(Boolean).join(" | "),
+      title: "Ultimo acesso manual expirado",
+      detail: [entitlementLabel, expiration.primary, expiration.secondary].filter(Boolean).join(" | "),
       tone: "",
+      entitlementId,
     };
   }
 
@@ -915,7 +968,7 @@
     return `
       <section class="result-section result-section-wide">
         <div class="section-heading compact">
-          <h3>Acesso manual Pro</h3>
+          <h3>Acesso manual</h3>
           <span class="status-chip ${manual.tone ? `status-chip-${manual.tone}` : ""}">
             ${escapeHtml(manual.title)}
           </span>
@@ -1375,6 +1428,58 @@
       console.warn("[rifa] #rifa-results não existe no DOM; ações de bloqueio/dias grátis não serão ligadas.");
     }
 
+    nodes.rifaResults?.addEventListener("submit", async (event) => {
+      const form = event.target?.closest?.("[data-rifa-edit-form]");
+      if (!form) {
+        return;
+      }
+
+      event.preventDefault();
+
+      const rifaId = state.rifa?.rifaId;
+      const appKey = form.dataset.appKey || "";
+      const match = state.rifa?.matches?.find((item) => item.appKey === appKey);
+      if (!rifaId) {
+        setFeedback(nodes.rifaFeedback, "Rifa ID não encontrado. Consulte a rifa novamente.", "error");
+        return;
+      }
+      if (!match) {
+        setFeedback(nodes.rifaFeedback, "App da rifa não encontrado. Consulte a rifa novamente.", "error");
+        return;
+      }
+
+      const updates = {};
+      for (const config of RIFA_EDITABLE_FIELDS) {
+        const input = form.querySelector(`[name="${config.field}"]`);
+        if (!input) {
+          continue;
+        }
+        updates[config.field] = input.value.trim();
+      }
+
+      const buttons = Array.from(form.querySelectorAll("button"));
+      buttons.forEach((button) => {
+        button.disabled = true;
+      });
+
+      setFeedback(nodes.rifaFeedback, `Salvando dados da rifa em ${match.label || appKey}...`, null);
+      try {
+        const result = await apiRequest(`/rifa/${encodeURIComponent(rifaId)}/update-fields`, {
+          method: "POST",
+          body: { appKey, updates },
+        });
+        const payload = await apiRequest(`/rifa/${encodeURIComponent(rifaId)}`);
+        renderRifaResult(payload);
+        setFeedback(nodes.rifaFeedback, result?.result?.message || "Dados atualizados com sucesso.", "success");
+      } catch (error) {
+        setFeedback(nodes.rifaFeedback, error.message, "error");
+      } finally {
+        buttons.forEach((button) => {
+          button.disabled = false;
+        });
+      }
+    });
+
     nodes.rifaResults?.addEventListener("click", async (event) => {
       logRifa("click em #rifa-results", {
         targetNode: event.target?.nodeName,
@@ -1396,12 +1501,12 @@
         const match = state.rifa?.matches?.find((item) => item.appKey === appKey);
         if (!rifaId) {
           logRifa("abortado: state.rifa.rifaId vazio (consulte a rifa de novo)");
-          setFeedback(nodes.rifaFeedback, "Rifa ID nao encontrado. Consulte a rifa novamente.", "error");
+          setFeedback(nodes.rifaFeedback, "Rifa ID não encontrado. Consulte a rifa novamente.", "error");
           return;
         }
         if (!match) {
-          logRifa("abortado: appKey da rifa nao encontrado", { appKey });
-          setFeedback(nodes.rifaFeedback, "App da rifa nao encontrado. Consulte a rifa novamente.", "error");
+          logRifa("abortado: appKey da rifa não encontrado", { appKey });
+          setFeedback(nodes.rifaFeedback, "App da rifa não encontrado. Consulte a rifa novamente.", "error");
           return;
         }
 
@@ -1438,7 +1543,7 @@
           const result = await apiRequest(endpoint, { method: "POST", body: { appKey } });
           const payload = await apiRequest(`/rifa/${encodeURIComponent(rifaId)}`);
           renderRifaResult(payload);
-          setFeedback(nodes.rifaFeedback, result?.result?.message || "Operacao concluida com sucesso.", "success");
+          setFeedback(nodes.rifaFeedback, result?.result?.message || "Operação concluída com sucesso.", "success");
           logRifa(`${actionLabel} concluído com sucesso`);
         } catch (error) {
           logRifa(`${actionLabel} falhou`, { message: error?.message, status: error?.status });
@@ -1460,12 +1565,12 @@
 
         if (!rifaId) {
           logRifa("add-free-days abortado: sem rifaId");
-          setFeedback(nodes.rifaFeedback, "Rifa ID nao encontrado. Consulte a rifa novamente.", "error");
+          setFeedback(nodes.rifaFeedback, "Rifa ID não encontrado. Consulte a rifa novamente.", "error");
           return;
         }
         if (!match) {
-          logRifa("add-free-days abortado: appKey nao encontrado", { appKey });
-          setFeedback(nodes.rifaFeedback, "App da rifa nao encontrado. Consulte a rifa novamente.", "error");
+          logRifa("add-free-days abortado: appKey não encontrado", { appKey });
+          setFeedback(nodes.rifaFeedback, "App da rifa não encontrado. Consulte a rifa novamente.", "error");
           return;
         }
 

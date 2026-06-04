@@ -31,7 +31,7 @@ function validateAmount(value) {
   const config = getFirestoreAdminConfig();
 
   if (!Number.isFinite(amount) || amount <= 0) {
-    throw new HttpError(400, "O valor precisa ser numerico e maior que zero.");
+    throw new HttpError(400, "O valor precisa ser numérico e maior que zero.");
   }
 
   if (amount > config.maxCreditDelta) {
@@ -47,17 +47,17 @@ function isPlainObject(value) {
 
 function validateFieldPath(fieldName) {
   if (!/^[a-zA-Z0-9_.-]{1,100}$/.test(fieldName)) {
-    throw new HttpError(400, `Campo invalido: ${fieldName}`);
+    throw new HttpError(400, `Campo inválido: ${fieldName}`);
   }
 }
 
 function validateFieldValue(value) {
   if (value === undefined) {
-    throw new HttpError(400, "Nao e permitido enviar valores indefinidos.");
+    throw new HttpError(400, "Não é permitido enviar valores indefinidos.");
   }
 
   if (typeof value === "function") {
-    throw new HttpError(400, "Tipo de valor nao suportado.");
+    throw new HttpError(400, "Tipo de valor não suportado.");
   }
 
   return value;
@@ -75,7 +75,7 @@ function validateUpdatePayload(updates) {
     validateFieldPath(field);
 
     if (!config.allowedUpdateFields.includes(field)) {
-      throw new HttpError(400, `Campo nao permitido para edicao: ${field}`);
+      throw new HttpError(400, `Campo não permitido para edição: ${field}`);
     }
 
     result[field] = validateFieldValue(value);

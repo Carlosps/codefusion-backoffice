@@ -38,7 +38,7 @@ test("getTargetFirestoreConfig rejects invalid JSON", () => {
 
   assert.throws(() => getTargetFirestoreConfig(), (error) => {
     assert.ok(error instanceof HttpError);
-    assert.match(error.message, /JSON invalido/);
+    assert.match(error.message, /JSON inválido/);
     return true;
   });
 });
@@ -161,7 +161,7 @@ test("resolveRifaLookupTarget rejects invalid appKey", () => {
   assert.throws(() => resolveRifaLookupTarget("desconhecido"), (error) => {
     assert.ok(error instanceof HttpError);
     assert.equal(error.status, 400);
-    assert.match(error.message, /App da rifa invalido/);
+    assert.match(error.message, /App da rifa inválido/);
     assert.deepEqual(error.details.allowedAppKeys, ["rifa-facil", "rifa-digital"]);
     return true;
   });

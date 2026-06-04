@@ -1,28 +1,28 @@
 # Code Fusion Support Backoffice
 
-Painel interno em HTML/CSS/JS com Firebase Hosting + Firebase Functions para dar suporte operacional ao time dos apps. Esta revisao da base inclui:
+Painel interno em HTML/CSS/JS com Firebase Hosting + Firebase Functions para dar suporte operacional ao time dos apps. Esta revisão da base inclui:
 
 - login via Google com Firebase Auth no frontend
 - allowlist de acesso via `SUPPORT_ALLOWED_EMAILS` e/ou `SUPPORT_ALLOWED_DOMAIN`
 - busca de cliente no RevenueCat por `projectId` + `app_user_id`
-- consulta de assinatura, entitlements e historico derivado de compras
-- acoes administrativas controladas no Firestore
+- consulta de assinatura, entitlements e histórico derivado de compras
+- ações administrativas controladas no Firestore
 - trilha simples de auditoria
 
 ## Estrutura
 
-- `web/`: frontend estatico
+- `web/`: frontend estático
 - `functions/`: backend protegido para RevenueCat, Firestore e auditoria
-- `docs/firestore-admin-mapping.md`: template para mapear collections/campos antes de producao
+- `docs/firestore-admin-mapping.md`: template para mapear collections/campos antes de produção
 
 ## Arquitetura Firebase
 
 - `backoffice-code-fusion`: projeto do painel, com Hosting, Google Sign-In, Auth e Functions
-- `rifa-73864`: projeto de dados do Rifa Facil, usado nas operacoes administrativas de rifa
-- `rifa-digital-f21e7`: projeto de dados do Rifa Digital, usado nas operacoes administrativas de rifa
+- `rifa-73864`: projeto de dados do Rifa Facil, usado nas operações administrativas de rifa
+- `rifa-digital-f21e7`: projeto de dados do Rifa Digital, usado nas operações administrativas de rifa
 - a auditoria continua gravada no projeto do backoffice
 
-## Pre-requisitos
+## Pré-requisitos
 
 - Node.js 20+
 - JDK 21+ para Firestore Emulator e demais emuladores do Firebase CLI atual
@@ -31,14 +31,14 @@ Painel interno em HTML/CSS/JS com Firebase Hosting + Firebase Functions para dar
 
 ## Setup
 
-1. Instale as dependencias das Functions:
+1. Instale as dependências das Functions:
 
 ```bash
 cd functions
 npm install
 ```
 
-2. Configure as variaveis comuns do backend:
+2. Configure as variáveis comuns do backend:
 
 ```bash
 cp functions/.env.example functions/.env
@@ -51,41 +51,56 @@ Em `functions/.env`, preencha pelo menos:
 - `FIRESTORE_USERS_COLLECTION`
 - `FIRESTORE_CREDIT_FIELD`
 - `FIRESTORE_ALLOWED_UPDATE_FIELDS`
-- `REVENUECAT_PROMOTIONAL_PRO_ENTITLEMENT` se quiser trocar o entitlement manual padrao `pro`
+- `REVENUECAT_PROMOTIONAL_PRO_ENTITLEMENT` se quiser trocar o entitlement manual padrão `pro`; projetos em `REVENUECAT_PROJECTS_JSON` podem sobrescrever com `entitlementId`
 
 3. Configure os secrets locais do Emulator em `functions/.secret.local` quando rodar localmente:
 
 ```dotenv
-REVENUECAT_PROJECTS_JSON=[{"projectId":"ios-main","label":"iOS Main","secretKey":"rc_live_xxx"},{"projectId":"android-main","label":"Android Main","secretKey":"rc_live_yyy"}]
+REVENUECAT_PROJECTS_JSON=[{"projectId":"rifa-facil","label":"Rifa Fácil","secretKey":"sk_xxx","entitlementId":"pro"},{"projectId":"rifa-digital","label":"Rifa Digital","secretKey":"sk_xxx","entitlementId":"pro"},{"projectId":"controle-estoque","label":"Controle de Estoque","secretKey":"sk_xxx","entitlementId":"pro"},{"projectId":"gerador-contratos","label":"Gerador de Contratos","secretKey":"sk_xxx","entitlementId":"pro"}]
 TARGET_FIRESTORE_SERVICE_ACCOUNT_JSON=
 ```
 
 O Firebase Functions Emulator tenta ler esses valores do Secret Manager porque a Function declara
 `REVENUECAT_PROJECTS_JSON` e `TARGET_FIRESTORE_SERVICE_ACCOUNT_JSON` como `secrets`. Sem acesso ao
-Secret Manager no projeto, `functions/.secret.local` e o override local esperado.
+Secret Manager no projeto, `functions/.secret.local` é o override local esperado.
 
-O modulo RevenueCat do painel busca a lista do dropdown no backend. O nome exibido no select vem de
-`label`, o identificador interno usado pela rota vem de `projectId` e a credencial privada usada
-na consulta vem de `secretKey`.
+O módulo RevenueCat do painel busca a lista de aplicativos no backend. O nome exibido vem de
+`label`, o identificador interno usado pela rota vem de `projectId`, o entitlement promocional
+vem de `entitlementId` e a credencial privada usada na consulta vem de `secretKey`. O frontend
+recebe apenas metadados públicos (`projectId`, `label` e `entitlementId`), nunca a secret key.
 
-Se as Functions do `backoffice-code-fusion` nao tiverem permissao IAM nos projetos de rifa (`rifa-73864` e `rifa-digital-f21e7`), configure tambem:
+Se as Functions do `backoffice-code-fusion` não tiverem permissão IAM nos projetos de rifa (`rifa-73864` e `rifa-digital-f21e7`), configure também:
 
 - `TARGET_FIRESTORE_SERVICE_ACCOUNT_JSON` em `functions/.secret.local` para desenvolvimento local
-- `TARGET_FIRESTORE_SERVICE_ACCOUNT_JSON` no Secret Manager para deploy, se nao for usar IAM entre projetos
+- `TARGET_FIRESTORE_SERVICE_ACCOUNT_JSON` no Secret Manager para deploy, se não for usar IAM entre projetos
 
 Exemplo de `REVENUECAT_PROJECTS_JSON`:
 
 ```json
 [
   {
-    "projectId": "ios-main",
-    "label": "iOS Main",
-    "secretKey": "rc_live_xxx"
+    "projectId": "rifa-facil",
+    "label": "Rifa Fácil",
+    "secretKey": "sk_xxx",
+    "entitlementId": "pro"
   },
   {
-    "projectId": "android-main",
-    "label": "Android Main",
-    "secretKey": "rc_live_yyy"
+    "projectId": "rifa-digital",
+    "label": "Rifa Digital",
+    "secretKey": "sk_xxx",
+    "entitlementId": "pro"
+  },
+  {
+    "projectId": "controle-estoque",
+    "label": "Controle de Estoque",
+    "secretKey": "sk_xxx",
+    "entitlementId": "pro"
+  },
+  {
+    "projectId": "gerador-contratos",
+    "label": "Gerador de Contratos",
+    "secretKey": "sk_xxx",
+    "entitlementId": "pro"
   }
 ]
 ```
@@ -94,13 +109,15 @@ Esse JSON tambem pode ser informado como objeto, caso voce prefira usar o `proje
 
 ```json
 {
-  "ios-main": {
-    "label": "iOS Main",
-    "secretKey": "rc_live_xxx"
+  "controle-estoque": {
+    "label": "Controle de Estoque",
+    "secretKey": "sk_xxx",
+    "entitlementId": "pro"
   },
-  "android-main": {
-    "label": "Android Main",
-    "secretKey": "rc_live_yyy"
+  "gerador-contratos": {
+    "label": "Gerador de Contratos",
+    "secretKey": "sk_xxx",
+    "entitlementId": "pro"
   }
 }
 ```
@@ -111,16 +128,16 @@ Esse JSON tambem pode ser informado como objeto, caso voce prefira usar o `proje
 cp web/config.example.js web/config.js
 ```
 
-Preencha o objeto `firebase` com a configuracao publica do projeto `backoffice-code-fusion`.
-Esse projeto e o responsavel por Hosting, Auth e Google Sign-In do painel.
-Os projetos de rifa ficam apenas no backend, como Firestore alvo das operacoes administrativas.
+Preencha o objeto `firebase` com a configuração pública do projeto `backoffice-code-fusion`.
+Esse projeto é o responsável por Hosting, Auth e Google Sign-In do painel.
+Os projetos de rifa ficam apenas no backend, como Firestore alvo das operações administrativas.
 
 5. No Firebase Console do `backoffice-code-fusion`:
 
 - habilite `Authentication > Sign-in method > Google`
-- confira se `localhost` e `127.0.0.1` estao autorizados em `Authentication > Settings > Authorized domains`
+- confira se `localhost` e `127.0.0.1` estão autorizados em `Authentication > Settings > Authorized domains`
 
-6. Para deploy com Secret Manager, crie os secrets necessarios:
+6. Para deploy com Secret Manager, crie os secrets necessários:
 
 ```bash
 firebase functions:secrets:set REVENUECAT_PROJECTS_JSON
@@ -174,16 +191,16 @@ Abra o app pela URL do Hosting local, por exemplo:
 http://127.0.0.1:5002
 ```
 
-Nao abra `web/index.html` por `file://`. O app depende de Hosting para servir os assets e reescrever `/api/*` para a Function `api`.
+Não abra `web/index.html` por `file://`. O app depende de Hosting para servir os assets e reescrever `/api/*` para a Function `api`.
 
-O fluxo local recomendado desta v1 e:
+O fluxo local recomendado desta v1 é:
 
 - Hosting, Functions, Firestore e Auth em emuladores
-- `functions/.env` para configuracoes nao secretas e `functions/.secret.local` para overrides de secrets
+- `functions/.env` para configurações não secretas e `functions/.secret.local` para overrides de secrets
 - `web/config.js` com `authEmulatorUrl: "http://127.0.0.1:9099"` para que o token do login local seja validado pelo Functions Emulator
 - Firestore administrativo de rifa apontando para `rifa-73864` e `rifa-digital-f21e7`
 
-O Functions Emulator usa uma versao isolada do Admin SDK e nao deve validar tokens reais do Google Sign-In nesse fluxo local. Por isso, use o login emulado quando estiver em `http://127.0.0.1:5002`; para testar Auth real antes de publicar, use um deploy/staging do Firebase Hosting no projeto `backoffice-code-fusion`.
+O Functions Emulator usa uma versão isolada do Admin SDK e não deve validar tokens reais do Google Sign-In nesse fluxo local. Por isso, use o login emulado quando estiver em `http://127.0.0.1:5002`; para testar Auth real antes de publicar, use um deploy/staging do Firebase Hosting no projeto `backoffice-code-fusion`.
 
 ## Como funciona a allowlist
 
@@ -228,25 +245,30 @@ Esse deploy publica no Hosting principal do projeto `backoffice-code-fusion` e s
 - `POST /firestore/users/:userId/credit`
 - `POST /firestore/users/:userId/debit`
 - `POST /firestore/users/:userId/update-fields`
+- `GET /rifa/:rifaId`
+- `POST /rifa/:rifaId/lock`
+- `POST /rifa/:rifaId/unlock`
+- `POST /rifa/:rifaId/free-trial`
+- `POST /rifa/:rifaId/update-fields`
 - `GET /audit/logs`
 
-## Seguranca e modelagem
+## Segurança e modelagem
 
 - O frontend nunca acessa RevenueCat nem Firestore Admin diretamente.
 - Todas as rotas administrativas exigem `Authorization: Bearer <Firebase ID Token>`.
 - O suporte entra com Google no projeto `backoffice-code-fusion`; o backend bloqueia quem estiver fora da allowlist.
-- O backend usa conexoes Admin secundarias para ler e escrever nos Firestores de rifa (`rifa-73864` e `rifa-digital-f21e7`).
-- O Firestore administrativo e orientado por allowlist, nao por edicao generica.
-- As regras de cliente do Firestore estao fechadas por padrao; acessos operacionais passam pelo backend.
+- O backend usa conexões Admin secundárias para ler e escrever nos Firestores de rifa (`rifa-73864` e `rifa-digital-f21e7`).
+- O Firestore administrativo é orientado por allowlist, não por edição genérica.
+- As regras de cliente do Firestore estão fechadas por padrão; acessos operacionais passam pelo backend.
 
-## Observacoes importantes
+## Observações importantes
 
-- O modulo Firestore assume, por padrao, uma colecao `users` com campo numerico `credits`. Ajuste isso antes de ir para producao.
-- Se `TARGET_FIRESTORE_SERVICE_ACCOUNT_JSON` nao for usado, a conta de servico das Functions do `backoffice-code-fusion` precisa ter permissao nos projetos `rifa-73864` e `rifa-digital-f21e7`.
-- O historico do RevenueCat e derivado dos dados retornados pelo endpoint de subscriber, entao ele mostra os eventos principais disponiveis nessa resposta.
-- A busca multi-projeto do RevenueCat ignora subscribers que parecem ter sido criados pela propria consulta; `first_seen` sozinho so conta quando nao coincide com o `request_date` e nao ha sinais de subscriber fantasma.
-- O modulo RevenueCat exige escolha manual do projeto antes da consulta.
-- O entitlement promocional manual usado pelo backoffice vem de `REVENUECAT_PROMOTIONAL_PRO_ENTITLEMENT`; se nao for informado, o backend usa `pro`.
-- O backoffice pode conceder acesso manual Pro direto no RevenueCat para clientes ja encontrados na busca, sempre por projeto, com atalhos semanal, mensal, anual ou data final especifica.
-- Se o dropdown do RevenueCat aparecer sem opcoes, revise `REVENUECAT_PROJECTS_JSON` em `functions/.secret.local` no ambiente local; a interface agora exibe um aviso direto quando essa configuracao estiver ausente ou invalida.
-- O template em `docs/firestore-admin-mapping.md` deve ser preenchido antes de liberar o modulo de escrita para o time.
+- O módulo Firestore assume, por padrão, uma coleção `users` com campo numérico `credits`. Ajuste isso antes de ir para produção.
+- Se `TARGET_FIRESTORE_SERVICE_ACCOUNT_JSON` não for usado, a conta de serviço das Functions do `backoffice-code-fusion` precisa ter permissão nos projetos `rifa-73864` e `rifa-digital-f21e7`.
+- O histórico do RevenueCat é derivado dos dados retornados pelo endpoint de subscriber, então ele mostra os eventos principais disponíveis nessa resposta.
+- A busca multi-projeto do RevenueCat ignora subscribers que parecem ter sido criados pela própria consulta; `first_seen` sozinho só conta quando não coincide com o `request_date` e não há sinais de subscriber fantasma.
+- O módulo RevenueCat exige escolha manual do projeto antes da consulta.
+- O entitlement promocional manual pode vir de `entitlementId` em cada projeto; se omitido, o backend usa `REVENUECAT_PROMOTIONAL_PRO_ENTITLEMENT` e depois `pro`.
+- O backoffice pode conceder acesso manual direto no RevenueCat para clientes já encontrados na busca, sempre por projeto, com atalhos semanal, mensal, anual ou data final específica.
+- Se o dropdown do RevenueCat aparecer sem opções, revise `REVENUECAT_PROJECTS_JSON` em `functions/.secret.local` no ambiente local; a interface agora exibe um aviso direto quando essa configuração estiver ausente ou inválida.
+- O template em `docs/firestore-admin-mapping.md` deve ser preenchido antes de liberar o módulo de escrita para o time.

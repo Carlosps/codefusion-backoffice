@@ -44,6 +44,9 @@ const {
   validateUserId,
   validateOptionalReason,
 } = require("./src/validation");
+const {
+  validateRifaUpdatePayload,
+} = require("./src/rifaFields");
 
 initializeApp();
 
@@ -104,8 +107,8 @@ function rethrowRifaFirestorePermissionError(error, kind = "write", target = nul
         .trim()
         .toLowerCase() === "true";
 
-    const readMessage = `Sem permissao para ler rifas no projeto ${lookupTarget.projectId}. No Google Cloud, abra esse projeto > IAM e conceda a service account usada pela API um papel com acesso ao Firestore (ex.: Cloud Datastore User).`;
-    const writeMessage = `Sem permissao para gravar rifas no projeto ${lookupTarget.projectId}. Se o GET /rifa funciona mas bloquear/desbloquear nao, a service account das Functions provavelmente so tem leitura: no IAM desse projeto, conceda escrita no Firestore (ex.: Cloud Datastore User).`;
+    const readMessage = `Sem permissão para ler rifas no projeto ${lookupTarget.projectId}. No Google Cloud, abra esse projeto > IAM e conceda à service account usada pela API um papel com acesso ao Firestore (ex.: Cloud Datastore User).`;
+    const writeMessage = `Sem permissão para gravar rifas no projeto ${lookupTarget.projectId}. Se o GET /rifa funciona mas bloquear/desbloquear não, a service account das Functions provavelmente só tem leitura: no IAM desse projeto, conceda escrita no Firestore (ex.: Cloud Datastore User).`;
 
     const message = kind === "read" ? readMessage : writeMessage;
 
@@ -177,7 +180,7 @@ async function getRifa(req, res, rifaId) {
           ...serializeRifaTarget(target),
           status: 403,
           code,
-          message: "Sem permissao para ler rifas neste projeto.",
+          message: "Sem permissão para ler rifas neste projeto.",
         });
         continue;
       }
@@ -198,7 +201,7 @@ async function getRifa(req, res, rifaId) {
       );
     }
 
-    throw new HttpError(404, "Rifa nao encontrada.", {
+    throw new HttpError(404, "Rifa não encontrada.", {
       lookupValue: normalizedId,
       searchedTargets: targets.map(serializeRifaTarget),
       targetFirestoreDisableEmulator: targetConfig.disableEmulator,
@@ -302,7 +305,7 @@ async function applyRifaLockedState(normalizedId, target, locked) {
   }
 
   if (!snap) {
-    throw new HttpError(404, "Rifa nao encontrada.");
+    throw new HttpError(404, "Rifa não encontrada.");
   }
 
   try {
@@ -406,7 +409,7 @@ async function addRifaFreeTrialDays(req, res, rifaId) {
   }
 
   if (!snap) {
-    throw new HttpError(404, "Rifa nao encontrada.");
+    throw new HttpError(404, "Rifa não encontrada.");
   }
 
   const db = snap.ref.firestore;
@@ -415,7 +418,7 @@ async function addRifaFreeTrialDays(req, res, rifaId) {
     result = await db.runTransaction(async (tx) => {
       const current = await tx.get(snap.ref);
       if (!current.exists) {
-        throw new HttpError(404, "Rifa nao encontrada.");
+        throw new HttpError(404, "Rifa não encontrada.");
       }
 
       const data = current.data() || {};
@@ -466,6 +469,65 @@ async function addRifaFreeTrialDays(req, res, rifaId) {
       projectId: target.projectId,
       days,
       expiresAt: result.expiresAt,
+    },
+  });
+}
+
+async function updateRifaFields(req, res, rifaId) {
+  const actor = await requireUser(req);
+  assertRateLimit(`${actor.uid}:write`, {
+    max: Number(process.env.API_RATE_LIMIT_WRITE_PER_WINDOW || 20),
+  });
+
+  const normalizedId = validateRifaId(rifaId);
+  const { body, target } = await getRifaWriteTargetFromBody(req);
+  const reason = validateOptionalReason(body?.reason);
+  const updates = validateRifaUpdatePayload(body?.updates);
+
+  let snap;
+  try {
+    snap = await getRifaDocSnapshot(normalizedId, target);
+  } catch (error) {
+    rethrowRifaFirestorePermissionError(error, "write", target);
+  }
+
+  if (!snap) {
+    throw new HttpError(404, "Rifa não encontrada.");
+  }
+
+  const payload = {
+    ...updates,
+    ...supportDocTimestamps(),
+  };
+
+  try {
+    await snap.ref.update(payload);
+  } catch (error) {
+    rethrowRifaFirestorePermissionError(error, "write", target);
+  }
+
+  await logAuditEvent({
+    module: "rifa",
+    action: "update_fields",
+    actor,
+    target: buildRifaAuditTarget(normalizedId, target, snap),
+    status: "success",
+    metadata: {
+      reason,
+      fields: Object.keys(updates),
+      updates: sanitizeAuditPayload(updates),
+    },
+  });
+
+  sendJson(res, 200, {
+    ok: true,
+    result: {
+      message: "Dados da rifa atualizados com sucesso.",
+      rifaId: normalizedId,
+      appKey: target.appKey,
+      projectId: target.projectId,
+      updatedFields: Object.keys(updates),
+      reason,
     },
   });
 }
@@ -623,12 +685,13 @@ async function grantPromotionalAccess(req, res, projectId, appUserId) {
     max: Number(process.env.API_RATE_LIMIT_WRITE_PER_WINDOW || 20),
   });
 
-  const entitlementId = getPromotionalEntitlementId();
+  let entitlementId = getPromotionalEntitlementId();
   const body = await readJsonBody(req);
   const grant = validatePromotionalAccessPayload(body);
 
   try {
-    await fetchRevenueCatSubscriber(projectId, appUserId);
+    const subscriberPayload = await fetchRevenueCatSubscriber(projectId, appUserId);
+    entitlementId = getPromotionalEntitlementId(subscriberPayload.project);
     const result = await grantRevenueCatPromotionalAccess(projectId, appUserId, grant);
 
     await logAuditEvent({
@@ -647,7 +710,7 @@ async function grantPromotionalAccess(req, res, projectId, appUserId) {
     sendJson(res, 200, {
       ok: true,
       result: {
-        message: "Acesso manual Pro concedido com sucesso.",
+        message: "Acesso manual concedido com sucesso.",
         projectId,
         appUserId,
         entitlementId,
@@ -699,7 +762,7 @@ async function creditUser(req, res, userId) {
   const result = await db.runTransaction(async (transaction) => {
     const snapshot = await transaction.get(docRef);
     if (!snapshot.exists) {
-      throw new HttpError(404, "Usuario nao encontrado no Firestore.");
+      throw new HttpError(404, "Usuário não encontrado no Firestore.");
     }
 
     transaction.update(docRef, {
@@ -730,7 +793,7 @@ async function creditUser(req, res, userId) {
   sendJson(res, 200, {
     ok: true,
     result: {
-      message: "Credito aplicado com sucesso.",
+      message: "Crédito aplicado com sucesso.",
       userId: targetUserId,
       field: config.creditField,
       delta: amount,
@@ -758,13 +821,13 @@ async function debitUser(req, res, userId) {
   const result = await db.runTransaction(async (transaction) => {
     const snapshot = await transaction.get(docRef);
     if (!snapshot.exists) {
-      throw new HttpError(404, "Usuario nao encontrado no Firestore.");
+      throw new HttpError(404, "Usuário não encontrado no Firestore.");
     }
 
     const before = Number(snapshot.get(config.creditField) || 0);
     const after = before - amount;
     if (!config.allowNegativeCredits && after < 0) {
-      throw new HttpError(400, "O debito deixaria o saldo negativo.");
+      throw new HttpError(400, "O débito deixaria o saldo negativo.");
     }
 
     transaction.update(docRef, {
@@ -793,7 +856,7 @@ async function debitUser(req, res, userId) {
   sendJson(res, 200, {
     ok: true,
     result: {
-      message: "Debito aplicado com sucesso.",
+      message: "Débito aplicado com sucesso.",
       userId: targetUserId,
       field: config.creditField,
       delta: amount,
@@ -821,7 +884,7 @@ async function updateUserFields(req, res, userId) {
 
   const snapshot = await docRef.get();
   if (!snapshot.exists) {
-    throw new HttpError(404, "Usuario nao encontrado no Firestore.");
+    throw new HttpError(404, "Usuário não encontrado no Firestore.");
   }
 
   const payload = {
@@ -946,6 +1009,17 @@ exports.api = onRequest(
         return;
       }
 
+      if (
+        req.method === "POST" &&
+        resource === "rifa" &&
+        scope &&
+        segments[2] === "update-fields" &&
+        !segments[3]
+      ) {
+        await updateRifaFields(req, res, decodeURIComponent(scope));
+        return;
+      }
+
       if (req.method === "GET" && resource === "revenuecat" && scope === "projects" && segments.length === 2) {
         await getRevenueCatProjects(req, res);
         return;
@@ -1060,7 +1134,7 @@ exports.api = onRequest(
         return;
       }
 
-      throw new HttpError(404, "Rota nao encontrada.");
+      throw new HttpError(404, "Rota não encontrada.");
     } catch (error) {
       logger.error("API request failed", error);
       sendError(res, error);

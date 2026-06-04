@@ -26,7 +26,7 @@ function validateOptionalReason(value) {
     return null;
   }
 
-  return assertString(value, "O motivo informado e invalido.", 500);
+  return assertString(value, "O motivo informado é inválido.", 500);
 }
 
 function isPlainObject(value) {

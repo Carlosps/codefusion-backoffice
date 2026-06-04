@@ -61,14 +61,14 @@ function assertActorAllowed(email) {
     policy.allowedDomain && normalizedEmail.endsWith(`@${policy.allowedDomain}`);
 
   if (!allowedByEmail && !allowedByDomain) {
-    throw new HttpError(403, "Sua conta nao tem acesso a este backoffice.");
+    throw new HttpError(403, "Sua conta não tem acesso a este backoffice.");
   }
 }
 
 async function requireUser(req) {
   const token = parseBearerToken(req.headers.authorization);
   if (!token) {
-    throw new HttpError(401, "Sessao ausente ou expirada.");
+    throw new HttpError(401, "Sessão ausente ou expirada.");
   }
 
   try {
@@ -85,11 +85,10 @@ async function requireUser(req) {
       throw error;
     }
 
-    throw new HttpError(401, "Nao foi possivel validar sua sessao.");
+    throw new HttpError(401, "Não foi possível validar sua sessão.");
   }
 }
 
 module.exports = {
   requireUser,
 };
-

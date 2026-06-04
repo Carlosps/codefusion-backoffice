@@ -16,6 +16,7 @@ const payload = {
   project: {
     projectId: "ios-main",
     label: "iOS Main",
+    entitlementId: "pro",
   },
   app_user_id: "user_123",
   request_date: "2026-04-03T10:00:00Z",
@@ -98,6 +99,46 @@ test("buildCustomerSummary exposes promotional pro access", () => {
   });
 });
 
+test("buildCustomerSummary uses project promotional entitlement", () => {
+  const promotionalPayload = {
+    ...payload,
+    project: {
+      projectId: "controle-estoque",
+      label: "Controle de Estoque",
+      entitlementId: "premium",
+    },
+    subscriber: {
+      ...payload.subscriber,
+      entitlements: {
+        premium: {
+          product_identifier: "rc_promo_premium",
+          purchase_date: "2026-04-01T00:00:00Z",
+          original_purchase_date: "2026-04-01T00:00:00Z",
+          expires_date: "2099-05-01T00:00:00Z",
+          will_renew: false,
+          store: "promotional",
+          period_type: "promotional",
+        },
+        pro: {
+          product_identifier: "rc_promo_pro",
+          purchase_date: "2026-04-01T00:00:00Z",
+          original_purchase_date: "2026-04-01T00:00:00Z",
+          expires_date: "2099-05-01T00:00:00Z",
+          will_renew: false,
+          store: "promotional",
+          period_type: "promotional",
+        },
+      },
+    },
+  };
+
+  const summary = buildCustomerSummary(promotionalPayload);
+
+  assert.equal(summary.project.entitlementId, "premium");
+  assert.equal(summary.manualProAccess.entitlementId, "premium");
+  assert.equal(summary.manualProAccess.productIdentifier, "rc_promo_premium");
+});
+
 test("buildCustomerHistory merges subscription and non-subscription purchases", () => {
   const history = buildCustomerHistory(payload);
 
@@ -114,16 +155,16 @@ test("buildCustomerSummary derives expiration for one-time monthly purchase", ()
       label: "Rifa Digital",
     },
     app_user_id: "user_monthly",
-    request_date: "2026-04-03T10:00:00Z",
+    request_date: "2026-06-03T10:00:00Z",
     subscriber: {
       original_app_user_id: "user_monthly",
-      first_seen: "2026-04-03T10:00:00Z",
+      first_seen: "2026-06-03T10:00:00Z",
       subscriptions: {},
       entitlements: {},
       non_subscriptions: {
         pro_mensal: [
           {
-            purchase_date: "2026-04-03T00:00:00Z",
+            purchase_date: "2026-06-03T00:00:00Z",
             store: "play_store",
             is_sandbox: false,
           },
@@ -136,10 +177,10 @@ test("buildCustomerSummary derives expiration for one-time monthly purchase", ()
   const history = buildCustomerHistory(monthlyPayload);
 
   assert.equal(summary.currentProduct, "pro_mensal");
-  assert.equal(summary.status.latestExpirationDate, "2026-05-03T00:00:00.000Z");
+  assert.equal(summary.status.latestExpirationDate, "2026-07-03T00:00:00.000Z");
   assert.equal(summary.status.hasActiveNonSubscription, true);
   assert.equal(summary.status.hasActiveAccess, true);
-  assert.equal(history.items[0].expiresDate, "2026-05-03T00:00:00.000Z");
+  assert.equal(history.items[0].expiresDate, "2026-07-03T00:00:00.000Z");
   assert.equal(history.items[0].accessPeriodLabel, "Mensal");
 });
 
@@ -164,7 +205,7 @@ test("findCustomersAcrossProjects returns matches sorted by active access", asyn
     }
 
     if (projectId === "rifa-digital") {
-      throw Object.assign(new Error("Cliente nao encontrado no RevenueCat."), { status: 404 });
+      throw Object.assign(new Error("Cliente não encontrado no RevenueCat."), { status: 404 });
     }
 
     throw new Error(`Projeto inesperado: ${projectId}:${appUserId}`);
@@ -211,14 +252,14 @@ test("findCustomersAcrossProjects ignores projects without relevant subscriber d
         }
 
         if (projectId === "rifa-digital") {
-          throw Object.assign(new Error("Cliente nao encontrado no RevenueCat."), { status: 404 });
+          throw Object.assign(new Error("Cliente não encontrado no RevenueCat."), { status: 404 });
         }
 
         throw new Error(`Projeto inesperado: ${projectId}`);
       }),
     (error) =>
       error.status === 404 &&
-      error.message === "Cliente nao encontrado nos aplicativos configurados.",
+      error.message === "Cliente não encontrado nos aplicativos configurados.",
   );
 });
 
@@ -251,7 +292,7 @@ test("findCustomersAcrossProjects ignores subscriber created at request time", a
       })),
     (error) =>
       error.status === 404 &&
-      error.message === "Cliente nao encontrado nos aplicativos configurados.",
+      error.message === "Cliente não encontrado nos aplicativos configurados.",
   );
 });
 
@@ -333,6 +374,7 @@ test("getRevenueCatProjectsConfig parses multiple configured projects", () => {
       projectId: "ios-main",
       label: "iOS Main",
       secretKey: "secret_1",
+      entitlementId: "premium",
     },
     {
       projectId: "android-main",
@@ -347,12 +389,19 @@ test("getRevenueCatProjectsConfig parses multiple configured projects", () => {
 
   assert.equal(projects.length, 2);
   assert.equal(projects[0].projectId, "ios-main");
+  assert.equal(projects[0].entitlementId, "premium");
   assert.equal(projects[1].label, "Android Main");
+  assert.equal(projects[1].entitlementId, "pro");
 });
 
 test("getPromotionalEntitlementId defaults to pro", () => {
   delete process.env.REVENUECAT_PROMOTIONAL_PRO_ENTITLEMENT;
   assert.equal(getPromotionalEntitlementId(), "pro");
+});
+
+test("getPromotionalEntitlementId prioritizes project config over env fallback", () => {
+  process.env.REVENUECAT_PROMOTIONAL_PRO_ENTITLEMENT = "pro";
+  assert.equal(getPromotionalEntitlementId({ entitlementId: "premium" }), "premium");
 });
 
 test("computePromotionalExpiresAt supports weekly monthly annual and until", () => {
@@ -382,6 +431,7 @@ test("grantRevenueCatPromotionalAccess sends end_time_ms to promotional endpoint
       projectId: "ios-main",
       label: "iOS Main",
       secretKey: "secret_1",
+      entitlementId: "premium",
     },
   ]);
 
@@ -412,11 +462,11 @@ test("grantRevenueCatPromotionalAccess sends end_time_ms to promotional endpoint
 
   assert.equal(
     request.url,
-    "https://api.revenuecat.com/v1/subscribers/user_123/entitlements/pro/promotional",
+    "https://api.revenuecat.com/v1/subscribers/user_123/entitlements/premium/promotional",
   );
   assert.equal(request.options.method, "POST");
   assert.equal(typeof JSON.parse(request.options.body).end_time_ms, "number");
-  assert.equal(result.entitlementId, "pro");
+  assert.equal(result.entitlementId, "premium");
 });
 
 test("listRevenueCatProjects hides secret keys", () => {
@@ -424,6 +474,7 @@ test("listRevenueCatProjects hides secret keys", () => {
     "ios-main": {
       label: "iOS Main",
       secretKey: "secret_1",
+      entitlementId: "premium",
     },
   });
   delete process.env.REVENUECAT_SECRET_KEY;
@@ -434,6 +485,7 @@ test("listRevenueCatProjects hides secret keys", () => {
     {
       projectId: "ios-main",
       label: "iOS Main",
+      entitlementId: "premium",
     },
   ]);
 });
@@ -446,7 +498,7 @@ test("getRevenueCatProjectsConfig returns actionable config error when missing",
     () => getRevenueCatProjectsConfig(),
     (error) =>
       error.status === 412 &&
-      error.message.includes("RevenueCat nao configurado no backend.") &&
+      error.message.includes("RevenueCat não configurado no backend.") &&
       error.message.includes("REVENUECAT_PROJECTS_JSON"),
   );
 });
@@ -459,6 +511,6 @@ test("getRevenueCatProjectsConfig returns actionable config error when JSON is i
     () => getRevenueCatProjectsConfig(),
     (error) =>
       error.status === 412 &&
-      error.message.includes("REVENUECAT_PROJECTS_JSON contem JSON invalido."),
+      error.message.includes("REVENUECAT_PROJECTS_JSON contém JSON inválido."),
   );
 });

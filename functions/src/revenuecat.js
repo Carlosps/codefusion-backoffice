@@ -4,8 +4,12 @@ function getRevenueCatBaseUrl() {
   return process.env.REVENUECAT_API_BASE_URL || "https://api.revenuecat.com/v1";
 }
 
-function getPromotionalEntitlementId() {
-  return String(process.env.REVENUECAT_PROMOTIONAL_PRO_ENTITLEMENT || "pro").trim() || "pro";
+function getPromotionalEntitlementId(project = null) {
+  return (
+    String(project?.entitlementId || "").trim() ||
+    String(process.env.REVENUECAT_PROMOTIONAL_PRO_ENTITLEMENT || "").trim() ||
+    "pro"
+  );
 }
 
 function createRevenueCatConfigError(message) {
@@ -182,6 +186,7 @@ function sanitizeProject(project) {
   const label = String(project.label || project.name || projectId).trim();
   const secretKey = String(project.secretKey || "").trim();
   const apiBaseUrl = String(project.apiBaseUrl || getRevenueCatBaseUrl()).trim();
+  const entitlementId = String(project.entitlementId || "").trim();
 
   if (!projectId || !label || !secretKey) {
     throw createRevenueCatConfigError(
@@ -194,6 +199,7 @@ function sanitizeProject(project) {
     label,
     secretKey,
     apiBaseUrl,
+    entitlementId: entitlementId || getPromotionalEntitlementId(),
   };
 }
 
@@ -205,14 +211,14 @@ function getRevenueCatProjectsConfig() {
       const parsed = JSON.parse(rawProjects);
       const projects = toProjectList(parsed).map(sanitizeProject);
       if (!projects.length) {
-        throw createRevenueCatConfigError("REVENUECAT_PROJECTS_JSON nao pode estar vazio.");
+        throw createRevenueCatConfigError("REVENUECAT_PROJECTS_JSON não pode estar vazio.");
       }
       return projects;
     } catch (error) {
       if (error instanceof HttpError) {
         throw error;
       }
-      throw createRevenueCatConfigError("REVENUECAT_PROJECTS_JSON contem JSON invalido.");
+      throw createRevenueCatConfigError("REVENUECAT_PROJECTS_JSON contém JSON inválido.");
     }
   }
 
@@ -224,17 +230,19 @@ function getRevenueCatProjectsConfig() {
         label: String(process.env.REVENUECAT_DEFAULT_PROJECT_LABEL || "Projeto principal").trim(),
         secretKey: fallbackSecret,
         apiBaseUrl: getRevenueCatBaseUrl(),
+        entitlementId: getPromotionalEntitlementId(),
       },
     ];
   }
 
-  throw createRevenueCatConfigError("RevenueCat nao configurado no backend.");
+  throw createRevenueCatConfigError("RevenueCat não configurado no backend.");
 }
 
 function listRevenueCatProjects() {
   return getRevenueCatProjectsConfig().map((project) => ({
     projectId: project.projectId,
     label: project.label,
+    entitlementId: getPromotionalEntitlementId(project),
   }));
 }
 
@@ -245,7 +253,7 @@ function getRevenueCatProject(projectId) {
   );
 
   if (!project) {
-    throw new HttpError(404, "Projeto do RevenueCat nao configurado.");
+    throw new HttpError(404, "Projeto do RevenueCat não configurado.");
   }
 
   return project;
@@ -283,8 +291,8 @@ function isPromotionalEntitlement(item) {
   );
 }
 
-function buildManualProAccess(entitlements) {
-  const entitlementId = getPromotionalEntitlementId();
+function buildManualProAccess(entitlements, project = null) {
+  const entitlementId = getPromotionalEntitlementId(project);
   const manualItems = entitlements
     .filter((item) => item.identifier === entitlementId && isPromotionalEntitlement(item))
     .sort((left, right) => {
@@ -335,6 +343,7 @@ function toRevenueCatSubscriberPayload(project, appUserId, payload) {
     project: {
       projectId: project.projectId,
       label: project.label,
+      entitlementId: getPromotionalEntitlementId(project),
     },
     app_user_id: appUserId,
     request_date: payload?.request_date || null,
@@ -360,7 +369,7 @@ function mapRevenueCatError(response, payload, fallbackMessage) {
   const message = payload?.message || fallbackMessage;
 
   if (response.status === 404) {
-    return new HttpError(404, "Cliente nao encontrado no RevenueCat.");
+    return new HttpError(404, "Cliente não encontrado no RevenueCat.");
   }
 
   if (response.status >= 400 && response.status < 500) {
@@ -548,7 +557,7 @@ function buildCustomerSummary(payload) {
   const subscriptions = buildSubscriptions(subscriber);
   const nonSubscriptions = buildNonSubscriptionItems(subscriber);
   const entitlements = buildEntitlements(subscriber);
-  const manualProAccess = buildManualProAccess(entitlements.all);
+  const manualProAccess = buildManualProAccess(entitlements.all, payload.project);
   const latestExpirationDate = getLatestExpirationDate([...subscriptions, ...nonSubscriptions]);
   const hasLifetimeAccess =
     subscriptions.some((item) => item.isLifetime) || nonSubscriptions.some((item) => item.isLifetime);
@@ -689,7 +698,7 @@ async function findCustomersAcrossProjects(appUserId, fetcher = fetchRevenueCatS
       throw new HttpError(safeStatus, first.message || "Falha ao consultar o RevenueCat.");
     }
 
-    throw new HttpError(404, "Cliente nao encontrado nos aplicativos configurados.");
+    throw new HttpError(404, "Cliente não encontrado nos aplicativos configurados.");
   }
 
   return {
@@ -709,7 +718,7 @@ async function fetchRevenueCatSubscriber(projectId, appUserId) {
   );
 
   if (response.status === 404) {
-    throw new HttpError(404, "Cliente nao encontrado no RevenueCat.");
+    throw new HttpError(404, "Cliente não encontrado no RevenueCat.");
   }
 
   if (!response.ok) {
@@ -717,7 +726,7 @@ async function fetchRevenueCatSubscriber(projectId, appUserId) {
   }
 
   if (!payload || !payload.subscriber) {
-    throw new HttpError(404, "Cliente nao encontrado no RevenueCat.");
+    throw new HttpError(404, "Cliente não encontrado no RevenueCat.");
   }
 
   return toRevenueCatSubscriberPayload(project, appUserId, payload);
@@ -730,7 +739,7 @@ async function grantRevenueCatPromotionalAccess(
   fetchImpl = fetch,
 ) {
   const project = getRevenueCatProject(projectId);
-  const entitlementId = getPromotionalEntitlementId();
+  const entitlementId = getPromotionalEntitlementId(project);
   const effectiveExpiresAt = computePromotionalExpiresAt(grant.grantKind, grant.expiresAt);
   const { response, payload } = await revenueCatRequest(
     project,

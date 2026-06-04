@@ -24,3 +24,10 @@ test("getPathSegments keeps nested revenuecat route after removing prefix", () =
     ["revenuecat", "projects", "ios-main", "customer", "user_123"],
   );
 });
+
+test("getPathSegments keeps rifa update-fields route after removing prefix", () => {
+  assert.deepEqual(
+    getPathSegments({ path: "/api/rifa/rifa_123/update-fields" }),
+    ["rifa", "rifa_123", "update-fields"],
+  );
+});

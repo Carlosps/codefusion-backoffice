@@ -500,6 +500,13 @@ select:focus {
   flex: 0 0 auto;
 }
 
+.rifa-edit-form {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+
 .button-compact {
   padding: 8px 10px;
   font-size: 0.85rem;
@@ -812,7 +819,8 @@ code,
 
   .lookup-form,
   .detail-grid,
-  .manual-access-custom {
+  .manual-access-custom,
+  .rifa-edit-form {
     grid-template-columns: 1fr;
   }
 }

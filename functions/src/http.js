@@ -17,8 +17,8 @@ function sendError(res, error) {
   const status = error.status || 500;
   const message =
     status >= 500
-      ? "Nao foi possivel concluir a operacao agora. Tente novamente."
-      : error.message || "Requisicao invalida.";
+      ? "Não foi possível concluir a operação agora. Tente novamente."
+      : error.message || "Requisição inválida.";
 
   sendJson(res, status, {
     ok: false,
@@ -83,7 +83,7 @@ async function readJsonBody(req) {
   try {
     return JSON.parse(raw);
   } catch (error) {
-    throw new HttpError(400, "JSON invalido.");
+    throw new HttpError(400, "JSON inválido.");
   }
 }
 

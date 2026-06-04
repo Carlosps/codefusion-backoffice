@@ -37,7 +37,7 @@ function parseServiceAccountJson(value) {
   } catch (error) {
     throw new HttpError(
       500,
-      "TARGET_FIRESTORE_SERVICE_ACCOUNT_JSON contem JSON invalido.",
+      "TARGET_FIRESTORE_SERVICE_ACCOUNT_JSON contém JSON inválido.",
     );
   }
 }
@@ -64,7 +64,7 @@ function getTargetFirestoreApp() {
   if (!config.projectId) {
     throw new HttpError(
       500,
-      "TARGET_FIRESTORE_PROJECT_ID nao foi configurado para o Firestore administrativo.",
+      "TARGET_FIRESTORE_PROJECT_ID não foi configurado para o Firestore administrativo.",
     );
   }
 
@@ -80,7 +80,7 @@ function getTargetFirestoreApp() {
   } catch (error) {
     throw new HttpError(
       500,
-      `Nao foi possivel inicializar o Firestore do projeto alvo (${config.projectId}).`,
+      `Não foi possível inicializar o Firestore do projeto alvo (${config.projectId}).`,
     );
   }
 }
@@ -126,13 +126,13 @@ function normalizeLookupTarget(target, index) {
   const matchField = String(target?.matchField || "").trim();
 
   if (!appKey) {
-    throw new HttpError(500, "RIFA_LOOKUP_TARGETS contem appKey vazio.");
+    throw new HttpError(500, "RIFA_LOOKUP_TARGETS contém appKey vazio.");
   }
   if (!projectId) {
     throw new HttpError(500, `Projeto Firebase ausente para ${appKey}.`);
   }
   if (!collection) {
-    throw new HttpError(500, `Colecao Firestore ausente para ${appKey}.`);
+    throw new HttpError(500, `Coleção Firestore ausente para ${appKey}.`);
   }
 
   return { appKey, label, projectId, collection, matchField };
@@ -150,7 +150,7 @@ function parseRifaLookupTargetsJson(value) {
     }
     return parsed.map(normalizeLookupTarget);
   } catch (error) {
-    throw new HttpError(500, "RIFA_LOOKUP_TARGETS contem JSON invalido.");
+    throw new HttpError(500, "RIFA_LOOKUP_TARGETS contém JSON inválido.");
   }
 }
 
@@ -170,7 +170,7 @@ function buildLegacySingleRifaLookupTarget() {
   }
 
   if (!collection) {
-    throw new HttpError(500, "RIFA_LOOKUP_COLLECTION nao pode ser vazio.");
+    throw new HttpError(500, "RIFA_LOOKUP_COLLECTION não pode ser vazio.");
   }
 
   return [
@@ -185,8 +185,8 @@ function buildLegacySingleRifaLookupTarget() {
 }
 
 /**
- * Projetos e colecoes consultados pela rota GET /rifa/:id.
- * Por padrao consulta Rifa Facil e Rifa Digital na colecao "raffles", por documentId.
+ * Projetos e coleções consultados pela rota GET /rifa/:id.
+ * Por padrão consulta Rifa Facil e Rifa Digital na coleção "raffles", por documentId.
  */
 function getRifaLookupTargets() {
   const configuredTargets = parseRifaLookupTargetsJson(process.env.RIFA_LOOKUP_TARGETS);
@@ -222,7 +222,7 @@ function resolveRifaLookupTarget(appKey) {
 
   const target = targets.find((candidate) => candidate.appKey === normalized);
   if (!target) {
-    throw new HttpError(400, "App da rifa invalido.", {
+    throw new HttpError(400, "App da rifa inválido.", {
       appKey: normalized,
       allowedAppKeys: targets.map((candidate) => candidate.appKey),
     });
@@ -248,7 +248,7 @@ function getRifaLookupFirestoreApp(target) {
   if (!targetConfig.projectId) {
     throw new HttpError(
       500,
-      "TARGET_FIRESTORE_PROJECT_ID e obrigatorio para credenciais do Firestore.",
+      "TARGET_FIRESTORE_PROJECT_ID é obrigatório para credenciais do Firestore.",
     );
   }
 
@@ -266,7 +266,7 @@ function getRifaLookupFirestoreApp(target) {
   } catch (error) {
     throw new HttpError(
       500,
-      `Nao foi possivel inicializar o Firestore de consulta de rifas (${projectId}).`,
+      `Não foi possível inicializar o Firestore de consulta de rifas (${projectId}).`,
     );
   }
 }
@@ -279,13 +279,13 @@ function getRifaLookupFirestoreDb(target) {
 
 /**
  * Fonte da verdade no Firestore (contrato compartilhado com o app de rifas):
- * - Estado de liberacao: um booleano no campo configuravel (padrao `unlocked`).
- *   Legado: alguns docs podem ter so `isUnlocked` ou so `blocked`; o backoffice
- *   grava o campo canonico (`RIFA_UNLOCKED_FIELD` / SUPPORT_RAFFLE_UNLOCKED_FIELD)
- *   e, se mirror ativo, tambem `blocked` para manter leituras antigas alinhadas.
+ * - Estado de liberação: um booleano no campo configurável (padrão `unlocked`).
+ *   Legado: alguns docs podem ter só `isUnlocked` ou só `blocked`; o backoffice
+ *   grava o campo canônico (`RIFA_UNLOCKED_FIELD` / SUPPORT_RAFFLE_UNLOCKED_FIELD)
+ *   e, se mirror ativo, também `blocked` para manter leituras antigas alinhadas.
  * - Desbloqueio pelo suporte: `unlockReason: "support"` (nunca valores tipo EXTERNAL_UNLOCK).
  *
- * Prioridade de env (primeiro valor nao-vazio vence):
+ * Prioridade de env (primeiro valor não vazio vence):
  * - Campo booleano principal: RIFA_UNLOCKED_FIELD, depois SUPPORT_RAFFLE_UNLOCKED_FIELD
  *   (espelho de functions.config support.raffle_unlocked_field no app, mapeado para env no deploy).
  * - Espelhar blocked: RIFA_MIRROR_BLOCKED_FIELD, depois SUPPORT_MIRROR_BLOCKED_FIELD
