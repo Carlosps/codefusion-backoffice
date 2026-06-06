@@ -1,6 +1,6 @@
 (function bootstrap() {
   /** Incremente ao mudar o front; confirme no console se o deploy chegou ao browser. */
-  const BACKOFFICE_BUILD_ID = "2026-06-04-auth-revenuecat-filter";
+  const BACKOFFICE_BUILD_ID = "2026-06-06-rifa-ux-refine";
   console.info("[backoffice] app.js carregado", BACKOFFICE_BUILD_ID, {
     href: typeof location !== "undefined" ? location.href : "",
   });
@@ -110,14 +110,47 @@
     return el && typeof el.closest === "function" ? el.closest(selector) : null;
   }
 
-  function formatDate(value, fallback = "Não informado", withTime = true) {
+  function coerceDate(value) {
     if (!value) {
-      return fallback;
+      return null;
     }
 
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) {
-      return value;
+    if (value instanceof Date) {
+      return Number.isNaN(value.getTime()) ? null : value;
+    }
+
+    if (typeof value === "number") {
+      const timestamp = value > 100000000000 ? value : value * 1000;
+      const date = new Date(timestamp);
+      return Number.isNaN(date.getTime()) ? null : date;
+    }
+
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (!trimmed) {
+        return null;
+      }
+      if (/^\d{10,13}$/.test(trimmed)) {
+        return coerceDate(Number(trimmed));
+      }
+      const date = new Date(trimmed);
+      return Number.isNaN(date.getTime()) ? null : date;
+    }
+
+    if (typeof value === "object") {
+      const seconds = value.seconds ?? value._seconds;
+      if (typeof seconds === "number") {
+        return coerceDate(seconds);
+      }
+    }
+
+    return null;
+  }
+
+  function formatDate(value, fallback = "Não informado", withTime = true) {
+    const date = coerceDate(value);
+    if (!date) {
+      return value ? String(value) : fallback;
     }
 
     return new Intl.DateTimeFormat("pt-BR", {
@@ -127,12 +160,8 @@
   }
 
   function formatRelativeDate(value) {
-    if (!value) {
-      return "";
-    }
-
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) {
+    const date = coerceDate(value);
+    if (!date) {
       return "";
     }
 
@@ -522,6 +551,12 @@
     hideElement(nodes.rifaResults);
   }
 
+  function clearSearchResults() {
+    clearRevenueCatResults();
+    clearRifaResults();
+    state.rifa = null;
+  }
+
   function formatBoolean(value) {
     if (value === true) {
       return "Sim";
@@ -541,6 +576,171 @@
       return String(value);
     }
     return new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 2 }).format(parsed);
+  }
+
+  function pickFirstText(...values) {
+    for (const value of values) {
+      const text = String(value ?? "").trim();
+      if (text) {
+        return text;
+      }
+    }
+    return "";
+  }
+
+  function looksLikeEmail(value) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim().toLowerCase());
+  }
+
+  function getRifaTitle(data) {
+    return pickFirstText(
+      data?.title,
+      data?.name,
+      data?.raffleName,
+      data?.raffleTitle,
+      data?.description,
+      data?.prize,
+      "Rifa sem título",
+    );
+  }
+
+  function getRifaImageLinks(data) {
+    if (Array.isArray(data?.imageLinks)) {
+      return data.imageLinks.filter((item) => typeof item === "string" && item.trim());
+    }
+    if (typeof data?.imageUrl === "string" && data.imageUrl.trim()) {
+      return [data.imageUrl.trim()];
+    }
+    return [];
+  }
+
+  function formatPhone(data) {
+    const ddi = pickFirstText(data?.ddi, data?.countryCode, data?.phoneDdi);
+    const phone = pickFirstText(data?.phone, data?.phoneNumber, data?.whatsapp);
+    if (!ddi && !phone) {
+      return "";
+    }
+
+    const cleanDdi = ddi.replace(/[^\d+]/g, "");
+    const cleanPhone = phone.replace(/[^\d]/g, "");
+    if (cleanDdi && cleanPhone) {
+      return `${cleanDdi.startsWith("+") ? cleanDdi : `+${cleanDdi}`} ${cleanPhone}`;
+    }
+    return phone || ddi;
+  }
+
+  function formatMaybeDate(value) {
+    if (value === null || value === undefined || value === "") {
+      return "Não informado";
+    }
+    return formatDate(value, "Não informado");
+  }
+
+  function renderProjectLabel(appKey, label, sizeClass = "project-avatar-tiny") {
+    const project = {
+      projectId: appKey,
+      label: label || appKey || "Rifa",
+    };
+    return `
+      <span class="app-inline-label">
+        ${renderProjectAvatar(project, sizeClass)}
+        <span>${escapeHtml(project.label)}</span>
+      </span>
+    `;
+  }
+
+  function renderRifaThumb(imageLinks, title) {
+    const first = Array.isArray(imageLinks) ? imageLinks.find(Boolean) : null;
+    if (!first) {
+      return '<span class="rifa-thumb rifa-thumb-empty"></span>';
+    }
+    return `
+      <span class="rifa-thumb">
+        <img src="${escapeHtml(first)}" alt="${escapeHtml(title || "Foto da rifa")}" loading="lazy" />
+      </span>
+    `;
+  }
+
+  function renderCellStack(primary, secondary = "") {
+    return `
+      <span class="cell-stack">
+        <strong>${escapeHtml(primary || "Não informado")}</strong>
+        ${secondary ? `<span>${escapeHtml(secondary)}</span>` : ""}
+      </span>
+    `;
+  }
+
+  function renderRifaIdentityCell(match) {
+    const data = match?.data || {};
+    const title = getRifaTitle(data);
+    const images = getRifaImageLinks(data);
+    return `
+      <span class="rifa-identity-cell">
+        ${renderRifaThumb(images, title)}
+        ${renderCellStack(title, match?.firestoreDocumentId ? `Documento ${match.firestoreDocumentId}` : "")}
+      </span>
+    `;
+  }
+
+  function renderRifaContactCell(data) {
+    const phone = formatPhone(data);
+    const email = pickFirstText(data?.email);
+    if (phone) {
+      return renderCellStack(phone, email);
+    }
+    return renderCellStack(email || "Contato não informado");
+  }
+
+  function renderRifaSituationCell(data) {
+    const { state } = interpretRifaLockState(data);
+    const status =
+      state === "unlocked"
+        ? "Desbloqueada"
+        : state === "locked"
+          ? "Bloqueada"
+          : "Status não informado";
+    const buyersCount = Array.isArray(data?.buyers) ? data.buyers.length : null;
+    const reservedBuyersCount = Array.isArray(data?.reservedBuyers) ? data.reservedBuyers.length : null;
+    const parts = [];
+    if (buyersCount !== null) {
+      parts.push(`${buyersCount} comprador(es)`);
+    }
+    if (reservedBuyersCount !== null) {
+      parts.push(`${reservedBuyersCount} reservado(s)`);
+    }
+    if (data?.freeTrialActive || data?.freeTrialExpiresAt) {
+      parts.push(`Trial ${formatBoolean(data?.freeTrialActive).toLowerCase()}`);
+    }
+    return renderCellStack(status, parts.join(" | "));
+  }
+
+  function renderDetailItem(label, value, options = {}) {
+    const display = value === null || value === undefined || value === "" ? "Não informado" : value;
+    return `
+      <div class="detail-item ${options.wide ? "detail-item-wide" : ""}">
+        <span>${escapeHtml(label)}</span>
+        <strong class="${options.mono ? "mono" : ""}">${escapeHtml(display)}</strong>
+      </div>
+    `;
+  }
+
+  function renderRifaImageGallery(imageLinks) {
+    if (!imageLinks.length) {
+      return '<div class="empty-state">Nenhuma imagem cadastrada.</div>';
+    }
+    return `
+      <div class="rifa-image-gallery">
+        ${imageLinks
+          .map(
+            (src, index) => `
+              <a href="${escapeHtml(src)}" target="_blank" rel="noreferrer">
+                <img src="${escapeHtml(src)}" alt="Imagem da rifa ${index + 1}" loading="lazy" />
+              </a>
+            `,
+          )
+          .join("")}
+      </div>
+    `;
   }
 
   function renderRifaPhoto(imageLinks) {
@@ -605,6 +805,24 @@
       "unlockReason",
       "reservedBuyers",
       "buyers",
+      "title",
+      "name",
+      "raffleName",
+      "raffleTitle",
+      "description",
+      "prize",
+      "email",
+      "ddi",
+      "countryCode",
+      "phoneDdi",
+      "phone",
+      "phoneNumber",
+      "whatsapp",
+      "raffleDate",
+      "claimedAt",
+      "reclaimedAt",
+      "recoveryUsedAt",
+      "imageUrl",
     ]);
 
     const input = data && typeof data === "object" ? data : {};
@@ -681,6 +899,233 @@
     return [];
   }
 
+  function getRifaCorrelationStatusLabel(status) {
+    if (status === "recurring") {
+      return "Cliente recorrente";
+    }
+    if (status === "single") {
+      return "Rifa única";
+    }
+    return "Correlação indisponível";
+  }
+
+  function getRifaCorrelationStatusClass(status) {
+    if (status === "recurring") {
+      return "status-chip-success";
+    }
+    if (status === "single") {
+      return "status-chip-muted";
+    }
+    return "status-chip-muted";
+  }
+
+  function renderRifaCorrelationPanel(correlation) {
+    if (!correlation) {
+      return "";
+    }
+
+    if (!correlation.email) {
+      return `
+        <article class="record-panel rifa-correlation-panel">
+          <header class="record-header">
+            <div class="record-title">
+              <h3>Correlação por e-mail</h3>
+              <p>Preencha o e-mail da rifa para identificar se o cliente tem outras rifas.</p>
+            </div>
+            <span class="status-chip status-chip-muted">Sem e-mail</span>
+          </header>
+        </article>
+      `;
+    }
+
+    const matches = Array.isArray(correlation.matches) ? correlation.matches : [];
+    const countsByApp = Array.isArray(correlation.countsByApp) ? correlation.countsByApp : [];
+    const partialErrors = Array.isArray(correlation.partialErrors) ? correlation.partialErrors : [];
+    const countsHtml = countsByApp.length
+      ? countsByApp
+          .map(
+            (item) => `
+              <span class="mini-badge">
+                ${escapeHtml(item.label || item.appKey)}: ${escapeHtml(String(item.count || 0))}
+              </span>
+            `,
+          )
+          .join("")
+      : '<span class="mini-badge">Nenhuma rifa encontrada</span>';
+
+    const rows = matches.map((match) => ({
+      appKey: match.appKey || "",
+      appLabel: match.label || match.appKey || "Rifa",
+      rifaId: match.rifaId || match.firestoreDocumentId || "",
+      match,
+      data: match.data || {},
+    }));
+
+    return `
+      <article class="record-panel rifa-correlation-panel">
+        <header class="record-header">
+          <div class="record-title">
+            <h3>Correlação por e-mail</h3>
+            <p>
+              <span class="mono">${escapeHtml(correlation.email)}</span>
+              | ${escapeHtml(String(correlation.total || 0))} rifa(s) encontrada(s)
+            </p>
+          </div>
+          <span class="status-chip ${getRifaCorrelationStatusClass(correlation.status)}">
+            ${escapeHtml(getRifaCorrelationStatusLabel(correlation.status))}
+          </span>
+        </header>
+
+        <div class="rifa-correlation-summary">
+          ${countsHtml}
+        </div>
+
+        ${
+          rows.length
+            ? renderTable(
+                [
+                  {
+                    label: "App",
+                    key: "appLabel",
+                    render: (row) => renderProjectLabel(row.appKey, row.appLabel),
+                  },
+                  {
+                    label: "Rifa",
+                    key: "rifaId",
+                    render: (row) => renderRifaIdentityCell(row.match),
+                  },
+                  {
+                    label: "Contato",
+                    key: "rifaId",
+                    render: (row) => renderRifaContactCell(row.data),
+                  },
+                  {
+                    label: "Situação",
+                    key: "rifaId",
+                    render: (row) => renderRifaSituationCell(row.data),
+                  },
+                  {
+                    label: "Ação",
+                    key: "rifaId",
+                    render: (row) => `
+                      <button
+                        class="button button-secondary button-compact"
+                        type="button"
+                        data-rifa-action="open-related-rifa"
+                        data-rifa-id="${escapeHtml(row.rifaId)}"
+                      >
+                        Abrir rifa
+                      </button>
+                    `,
+                  },
+                ],
+                rows,
+              )
+            : '<div class="empty-state">Nenhuma rifa relacionada encontrada para este e-mail.</div>'
+        }
+
+        ${
+          partialErrors.length
+            ? `<p class="correlation-warning">${escapeHtml(partialErrors.length)} app(s) não puderam ser consultados por permissão.</p>`
+            : ""
+        }
+      </article>
+    `;
+  }
+
+  function renderRifaOperationalDetails(match) {
+    const data = match?.data || {};
+    const title = getRifaTitle(data);
+    const phone = formatPhone(data);
+    const imageLinks = getRifaImageLinks(data);
+    const additionalRows = flattenRifaData(data).map((row) => ({
+      key: row.key,
+      value:
+        row.value === null || row.value === undefined
+          ? "—"
+          : typeof row.value === "string" || typeof row.value === "number" || typeof row.value === "boolean"
+            ? String(row.value)
+            : JSON.stringify(row.value),
+    }));
+
+    return `
+      <section class="rifa-details">
+        <div class="rifa-detail-section">
+          <div class="section-heading compact">
+            <h3>Identificação</h3>
+          </div>
+          <div class="detail-grid">
+            ${renderDetailItem("Título", title, { wide: true })}
+            ${renderDetailItem("Documento", match?.firestoreDocumentId || "Não informado", { mono: true })}
+            ${renderDetailItem("Coleção", match?.collection || "Não informado")}
+            ${renderDetailItem("App", match?.label || match?.appKey || "Não informado")}
+            ${renderDetailItem("Projeto", match?.projectId || "Não informado", { mono: true })}
+          </div>
+        </div>
+
+        <div class="rifa-detail-section">
+          <div class="section-heading compact">
+            <h3>Contato</h3>
+          </div>
+          <div class="detail-grid">
+            ${renderDetailItem("E-mail", data?.email || "Não informado", { wide: true })}
+            ${renderDetailItem("Telefone", phone || "Não informado")}
+            ${renderDetailItem("DDI", pickFirstText(data?.ddi, data?.countryCode, data?.phoneDdi) || "Não informado")}
+          </div>
+        </div>
+
+        <div class="rifa-detail-section">
+          <div class="section-heading compact">
+            <h3>Sorteio</h3>
+          </div>
+          <div class="detail-grid">
+            ${renderDetailItem("Data da rifa", formatMaybeDate(data?.raffleDate), { wide: true })}
+            ${renderDetailItem("Preço", data?.unlockPrice ?? "Não informado")}
+            ${renderDetailItem("Receita atual", formatNumber(data?.currentProfit))}
+          </div>
+        </div>
+
+        <div class="rifa-detail-section">
+          <div class="section-heading compact">
+            <h3>Acesso e recuperação</h3>
+          </div>
+          <div class="detail-grid">
+            ${renderDetailItem("Desbloqueio", formatBoolean(interpretRifaLockState(data).chipUnlocked))}
+            ${renderDetailItem("Desbloqueada em", formatMaybeDate(data?.unlockedAt))}
+            ${renderDetailItem("Motivo", data?.unlockReason || "Não informado")}
+            ${renderDetailItem("Free trial ativo", formatBoolean(data?.freeTrialActive))}
+            ${renderDetailItem("Free trial expira", formatMaybeDate(data?.freeTrialExpiresAt))}
+            ${renderDetailItem("Claimed at", formatMaybeDate(data?.claimedAt))}
+            ${renderDetailItem("Reclaimed at", formatMaybeDate(data?.reclaimedAt))}
+            ${renderDetailItem("Recovery used at", formatMaybeDate(data?.recoveryUsedAt))}
+          </div>
+        </div>
+
+        <div class="rifa-detail-section rifa-detail-section-wide">
+          <div class="section-heading compact">
+            <h3>Mídia</h3>
+          </div>
+          ${renderRifaImageGallery(imageLinks)}
+        </div>
+
+        <details class="raw-fields rifa-detail-section-wide">
+          <summary>Campos técnicos</summary>
+          ${
+            additionalRows.length
+              ? renderTable(
+                  [
+                    { label: "Campo", key: "key" },
+                    { label: "Valor", key: "value" },
+                  ],
+                  additionalRows,
+                )
+              : '<div class="empty-state">Nenhum campo técnico adicional encontrado.</div>'
+          }
+        </details>
+      </section>
+    `;
+  }
+
   function renderRifaMatchCard(match) {
     const data = match?.data ?? {};
     const appKey = match?.appKey || "";
@@ -699,7 +1144,7 @@
     const unlockReason = data?.unlockReason;
     const reservedBuyersCount = Array.isArray(data?.reservedBuyers) ? data.reservedBuyers.length : null;
     const buyersCount = Array.isArray(data?.buyers) ? data.buyers.length : null;
-    const imageLinks = data?.imageLinks;
+    const imageLinks = getRifaImageLinks(data);
 
     const photo = renderRifaPhoto(imageLinks);
     const toggleLabel = lockState === "unlocked" ? "Bloquear rifa" : "Desbloquear rifa";
@@ -735,15 +1180,6 @@
                   </button>
                 `;
 
-    const additionalRows = flattenRifaData(data).map((row) => ({
-      key: row.key,
-      value:
-        row.value === null || row.value === undefined
-          ? "—"
-          : typeof row.value === "string"
-            ? row.value
-            : JSON.stringify(row.value),
-    }));
     const statusLabel =
       unlocked === true
         ? "Rifa desbloqueada"
@@ -761,7 +1197,7 @@
     ].filter(Boolean).join(" | ") || "Não informado";
 
     return `
-      <article class="record-panel rifa-record ${accentClass}">
+      <article class="record-panel rifa-record ${accentClass}" data-rifa-record="1">
         <header class="record-header">
           <div class="app-result-heading">
               ${renderProjectAvatar(project, "project-avatar-large")}
@@ -846,20 +1282,7 @@
 
         ${renderRifaEditSection(match)}
 
-        <details class="raw-fields">
-          <summary>Outros campos do documento</summary>
-          ${
-            additionalRows.length
-              ? renderTable(
-                  [
-                    { label: "Campo", key: "key" },
-                    { label: "Valor", key: "value" },
-                  ],
-                  additionalRows,
-                )
-              : '<div class="empty-state">Nenhum campo adicional encontrado.</div>'
-          }
-        </details>
+        ${renderRifaOperationalDetails(match)}
       </article>
     `;
   }
@@ -870,13 +1293,18 @@
     }
 
     const matches = normalizeRifaMatches(payload);
+    const emailCorrelation = payload?.emailCorrelation || null;
     state.rifa = {
       rifaId: payload?.rifaId || matches[0]?.rifaId || null,
       matches,
+      emailCorrelation,
     };
 
-    nodes.rifaResults.innerHTML = matches.length
-      ? matches.map(renderRifaMatchCard).join("")
+    const correlationHtml = renderRifaCorrelationPanel(emailCorrelation);
+    const matchesHtml = matches.length ? matches.map(renderRifaMatchCard).join("") : "";
+    const hasResultHtml = Boolean(correlationHtml || matchesHtml);
+    nodes.rifaResults.innerHTML = hasResultHtml
+      ? `${correlationHtml}${matchesHtml}`
       : '<div class="empty-state">Nenhuma rifa encontrada.</div>';
     showElement(nodes.rifaResults);
   }
@@ -1263,6 +1691,66 @@
     setFeedback(nodes.revenueCatFeedback, "Consulta concluída com sucesso.", "success");
   }
 
+  async function loadRifaById(rifaId, options = {}) {
+    const value = String(rifaId || "").trim();
+    if (!value) {
+      setFeedback(nodes.rifaFeedback, "Informe o Rifa ID.", "error");
+      return;
+    }
+
+    if (!options.preserveResults) {
+      clearSearchResults();
+    }
+    if (nodes.rifaInput) {
+      nodes.rifaInput.value = value;
+    }
+    setFeedback(nodes.rifaFeedback, options.feedbackMessage || "Consultando rifa...", null);
+
+    const payload = await apiRequest(`/rifa/${encodeURIComponent(value)}`);
+    renderRifaResult(payload);
+    if (options.scrollToRecord) {
+      nodes.rifaResults?.querySelector("[data-rifa-record]")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }
+    setFeedback(nodes.rifaFeedback, "Consulta concluída com sucesso.", "success");
+  }
+
+  async function loadRifasByEmail(email) {
+    const value = String(email || "").trim();
+    if (!value) {
+      setFeedback(nodes.rifaFeedback, "Informe o e-mail do cliente.", "error");
+      return;
+    }
+
+    clearSearchResults();
+    setFeedback(nodes.rifaFeedback, "Buscando rifas por e-mail...", null);
+
+    const payload = await apiRequest(`/rifa/by-email/${encodeURIComponent(value)}`);
+    renderRifaResult(payload);
+    setFeedback(nodes.rifaFeedback, "Busca por e-mail concluída com sucesso.", "success");
+  }
+
+  async function loadRifaLookup(value) {
+    const normalized = String(value || "").trim();
+    if (!normalized) {
+      setFeedback(nodes.rifaFeedback, "Informe o Rifa ID ou e-mail.", "error");
+      return;
+    }
+
+    if (looksLikeEmail(normalized)) {
+      await loadRifasByEmail(normalized);
+      return;
+    }
+
+    if (normalized.includes("@")) {
+      throw new Error("Informe um e-mail válido ou um Rifa ID.");
+    }
+
+    await loadRifaById(normalized);
+  }
+
   function setManualAccessFormFeedback(form, message, type) {
     setFeedback(form.querySelector(".manual-access-feedback"), message, type);
   }
@@ -1443,7 +1931,7 @@
 
     nodes.revenueCatForm.addEventListener("submit", async (event) => {
       event.preventDefault();
-      clearRevenueCatResults();
+      clearSearchResults();
 
       try {
         await loadRevenueCat(nodes.revenueCatInput.value.trim());
@@ -1456,18 +1944,12 @@
       event.preventDefault();
       const value = nodes.rifaInput?.value?.trim();
       if (!value) {
-        setFeedback(nodes.rifaFeedback, "Informe o Rifa ID.", "error");
+        setFeedback(nodes.rifaFeedback, "Informe o Rifa ID ou e-mail.", "error");
         return;
       }
 
-      clearRifaResults();
-      state.rifa = null;
-      setFeedback(nodes.rifaFeedback, "Consultando rifa...", null);
-
       try {
-        const payload = await apiRequest(`/rifa/${encodeURIComponent(value)}`);
-        renderRifaResult(payload);
-        setFeedback(nodes.rifaFeedback, "Consulta concluída com sucesso.", "success");
+        await loadRifaLookup(value);
       } catch (error) {
         clearRifaResults();
         setFeedback(nodes.rifaFeedback, error.message, "error");
@@ -1651,6 +2133,32 @@
         return;
       }
 
+      if (rifaAction === "open-related-rifa") {
+        const relatedRifaId = button.dataset.rifaId || "";
+        if (!relatedRifaId) {
+          setFeedback(nodes.rifaFeedback, "Rifa relacionada sem ID para abrir.", "error");
+          return;
+        }
+
+        const previousText = button.textContent;
+        button.disabled = true;
+        button.textContent = "Abrindo...";
+        setFeedback(nodes.rifaFeedback, "Abrindo rifa relacionada...", null);
+        try {
+          await loadRifaById(relatedRifaId, {
+            preserveResults: true,
+            scrollToRecord: true,
+            feedbackMessage: "Abrindo rifa relacionada...",
+          });
+        } catch (error) {
+          setFeedback(nodes.rifaFeedback, error.message, "error");
+        } finally {
+          button.disabled = false;
+          button.textContent = previousText;
+        }
+        return;
+      }
+
       logRifa("clique ignorado: data-rifa-action não tratado", { rifaAction });
     });
 
@@ -1659,6 +2167,8 @@
       if (!appUserId) {
         return;
       }
+
+      clearSearchResults();
 
       try {
         await loadRevenueCat(appUserId);

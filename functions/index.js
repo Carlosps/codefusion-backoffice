@@ -47,6 +47,11 @@ const {
 const {
   validateRifaUpdatePayload,
 } = require("./src/rifaFields");
+const {
+  findRifasByEmail,
+  buildRifaEmailCorrelationFromMatches,
+  assertEmailCorrelationHasResults,
+} = require("./src/rifaCorrelation");
 
 initializeApp();
 
@@ -217,6 +222,41 @@ async function getRifa(req, res, rifaId) {
       targetFirestoreDisableEmulator: targetConfig.disableEmulator,
     },
     matches,
+    emailCorrelation: await buildRifaEmailCorrelationFromMatches({
+      matches,
+      targets,
+      getDb: getRifaLookupFirestoreDb,
+      serializeFirestoreValue,
+      isPermissionError: isRifaFirestorePermissionError,
+      serializeTarget: serializeRifaTarget,
+    }),
+  });
+}
+
+async function getRifaByEmail(req, res, email) {
+  await requireUser(req);
+
+  const targetConfig = getTargetFirestoreConfig();
+  const targets = getRifaLookupTargets();
+  const correlation = await findRifasByEmail({
+    email: String(email || "").trim(),
+    targets,
+    getDb: getRifaLookupFirestoreDb,
+    serializeFirestoreValue,
+    isPermissionError: isRifaFirestorePermissionError,
+    serializeTarget: serializeRifaTarget,
+  });
+
+  assertEmailCorrelationHasResults(correlation);
+
+  sendJson(res, 200, {
+    ok: true,
+    emailCorrelation: correlation,
+    meta: {
+      searchedTargets: targets.map(serializeRifaTarget),
+      partialErrors: correlation.partialErrors || [],
+      targetFirestoreDisableEmulator: targetConfig.disableEmulator,
+    },
   });
 }
 
@@ -497,6 +537,7 @@ async function updateRifaFields(req, res, rifaId) {
 
   const payload = {
     ...updates,
+    ...(updates.email ? { emailNormalized: updates.email } : {}),
     ...supportDocTimestamps(),
   };
 
@@ -968,6 +1009,17 @@ exports.api = onRequest(
 
       if (req.method === "GET" && resource === "auth" && scope === "session") {
         await getSession(req, res);
+        return;
+      }
+
+      if (
+        req.method === "GET" &&
+        resource === "rifa" &&
+        scope === "by-email" &&
+        segments[2] &&
+        !segments[3]
+      ) {
+        await getRifaByEmail(req, res, decodeURIComponent(segments[2]));
         return;
       }
 

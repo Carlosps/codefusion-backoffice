@@ -31,3 +31,10 @@ test("getPathSegments keeps rifa update-fields route after removing prefix", () 
     ["rifa", "rifa_123", "update-fields"],
   );
 });
+
+test("getPathSegments keeps rifa by-email route after removing prefix", () => {
+  assert.deepEqual(
+    getPathSegments({ path: "/api/rifa/by-email/cliente%40example.com" }),
+    ["rifa", "by-email", "cliente%40example.com"],
+  );
+});

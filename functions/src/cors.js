@@ -14,6 +14,8 @@ function getAllowedOrigins() {
   }
 
   return [
+    "https://code-fusion-backoffice.web.app",
+    "https://code-fusion-backoffice.firebaseapp.com",
     "https://backoffice-code-fusion.web.app",
     "https://backoffice-code-fusion.firebaseapp.com",
     "http://localhost:5002",
@@ -57,6 +59,7 @@ function handleCorsPreflight(req, res) {
 
 module.exports = {
   applyCors,
+  getAllowedOrigins,
   handleCorsPreflight,
+  parseAllowedOrigins,
 };
-
