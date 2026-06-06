@@ -1,7 +1,7 @@
 const { initializeApp } = require("firebase-admin/app");
 const { FieldValue, Timestamp } = require("firebase-admin/firestore");
 const { onRequest } = require("firebase-functions/v2/https");
-const { logger } = require("firebase-functions");
+const logger = require("firebase-functions/logger");
 
 const { logAuditEvent, fetchAuditLogs } = require("./src/audit");
 const { requireUser } = require("./src/auth");

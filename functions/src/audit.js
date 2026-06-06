@@ -1,5 +1,5 @@
 const { getFirestore, FieldValue } = require("firebase-admin/firestore");
-const { logger } = require("firebase-functions");
+const logger = require("firebase-functions/logger");
 
 function getAuditCollection() {
   return process.env.AUDIT_COLLECTION || "support_audit_logs";

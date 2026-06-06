@@ -24,7 +24,7 @@ Painel interno em HTML/CSS/JS com Firebase Hosting + Firebase Functions para dar
 
 ## Pré-requisitos
 
-- Node.js 20+
+- Node.js 22
 - JDK 21+ para Firestore Emulator e demais emuladores do Firebase CLI atual
 - Firebase CLI
 - projeto Firebase com Auth, Firestore e Hosting habilitados
@@ -148,8 +148,8 @@ Se voce for usar apenas IAM entre projetos, pode manter `TARGET_FIRESTORE_SERVIC
 
 Ambiente local recomendado:
 
-- Node.js 20+; Node 22 tambem funciona bem para desenvolvimento local
-- `functions/package.json` continua com runtime alvo `node: 20` para deploy
+- Node.js 22 para desenvolvimento local e deploy das Functions
+- use `nvm use 22` antes de rodar comandos das Functions para evitar o Node 16 local em `/usr/local/bin/node`
 - `npm run serve` agora valida Java antes de subir os emuladores; use JDK 21+ com `JAVA_HOME` e `PATH` apontando para essa instalacao
 - os scripts deste repo usam explicitamente o projeto Firebase `code-fusion-backoffice`, sem depender do projeto ativo global do CLI
 
