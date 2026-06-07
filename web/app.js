@@ -161,6 +161,39 @@
     }).format(date);
   }
 
+  function formatRaffleDate(value) {
+    const date = coerceDate(value);
+    if (!date) {
+      return "Não informado";
+    }
+    const dateLabel = new Intl.DateTimeFormat("pt-BR", {
+      day: "numeric",
+      month: "long",
+    }).format(date);
+
+    const startOfDay = (d) => {
+      const copy = new Date(d);
+      copy.setHours(0, 0, 0, 0);
+      return copy;
+    };
+    const diffDays = Math.round(
+      (startOfDay(date).getTime() - startOfDay(new Date()).getTime()) / 86400000,
+    );
+    let suffix = "";
+    if (diffDays === 0) {
+      suffix = " (hoje)";
+    } else if (diffDays === 1) {
+      suffix = " (amanhã)";
+    } else if (diffDays > 1) {
+      suffix = ` (${diffDays} dias)`;
+    } else if (diffDays === -1) {
+      suffix = " (ontem)";
+    } else {
+      suffix = ` (há ${Math.abs(diffDays)} dias)`;
+    }
+    return `${dateLabel}${suffix}`;
+  }
+
   function formatRelativeDate(value) {
     const date = coerceDate(value);
     if (!date) {
@@ -942,6 +975,7 @@
       "phoneNumber",
       "whatsapp",
       "raffleDate",
+      "raffle_date",
       "imageUrl",
       "slots",
       "purchased_numbers",
@@ -1194,7 +1228,7 @@
             <h3>Sorteio</h3>
           </div>
           <div class="detail-grid">
-            ${renderDetailItem("Data da rifa", formatMaybeDate(data?.raffleDate), { wide: true })}
+            ${renderDetailItem("Data da rifa", formatRaffleDate(data?.raffle_date ?? data?.raffleDate), { wide: true })}
             ${renderDetailItem("Preço", formatCurrencyBRL(data?.price ?? data?.unlockPrice))}
             ${renderDetailItem("Receita atual", formatCurrencyBRL(computeRealProfit(data)))}
           </div>
