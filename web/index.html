@@ -7,163 +7,228 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="./styles.css?v=2026-06-06-rifa-ux-refine" />
+    <link rel="stylesheet" href="./styles.css?v=2026-06-07-redesign-v4" />
   </head>
   <body>
-    <div class="app-shell">
-      <header class="topbar">
-        <div class="brand-block">
-          <strong>CodeFusion</strong>
-          <span>Backoffice</span>
-        </div>
+    <section id="auth-panel" class="auth-screen">
+      <div id="setup-warning" class="setup-warning hidden">
+        <h2>Configuração pendente</h2>
+        <p id="setup-warning-message">
+          Crie o arquivo <code>web/config.js</code> a partir de
+          <code>web/config.example.js</code> para conectar esta interface ao seu projeto
+          Firebase.
+        </p>
+      </div>
 
-        <div class="session-bar">
-          <div id="auth-identity" class="auth-identity hidden">
-            <strong id="auth-identity-name">Operador</strong>
-            <span id="auth-identity-email"></span>
+      <div class="auth-card">
+        <div class="auth-brand">
+          <span class="brand-mark" aria-hidden="true">CF</span>
+          <div>
+            <strong>CodeFusion</strong>
+            <span>Backoffice</span>
           </div>
-          <button id="logout-button" class="button button-secondary hidden" type="button">
-            Sair
-          </button>
         </div>
-      </header>
+        <p class="auth-eyebrow" id="auth-panel-eyebrow">Sessão</p>
+        <h1 id="auth-panel-title">Verificando acesso...</h1>
+        <p id="auth-panel-description" class="auth-card-text">
+          Aguarde enquanto confirmamos sua sessão.
+        </p>
+        <button id="login-button" class="button button-google hidden" type="button" disabled>
+          <span class="google-mark" aria-hidden="true">
+            <svg viewBox="0 0 18 18" focusable="false">
+              <path
+                fill="#4285F4"
+                d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.71-1.57 2.68-3.9 2.68-6.62Z"
+              />
+              <path
+                fill="#34A853"
+                d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.81.54-1.84.86-3.04.86-2.34 0-4.33-1.58-5.04-3.7H.96v2.33A9 9 0 0 0 9 18Z"
+              />
+              <path
+                fill="#FBBC05"
+                d="M3.96 10.72A5.41 5.41 0 0 1 3.68 9c0-.6.1-1.19.28-1.72V4.95H.96A9 9 0 0 0 0 9c0 1.45.35 2.82.96 4.05l3-2.33Z"
+              />
+              <path
+                fill="#EA4335"
+                d="M9 3.58c1.32 0 2.5.45 3.44 1.33l2.58-2.58C13.46.9 11.43 0 9 0A9 9 0 0 0 .96 4.95l3 2.33c.71-2.12 2.7-3.7 5.04-3.7Z"
+              />
+            </svg>
+          </span>
+          <span>Entrar com Google</span>
+        </button>
+        <div id="auth-feedback" class="feedback"></div>
+      </div>
+    </section>
 
-      <main class="dashboard">
-        <section id="setup-warning" class="panel setup-panel hidden">
-          <h2>Configuração pendente</h2>
-          <p id="setup-warning-message">
-            Crie o arquivo <code>web/config.js</code> a partir de
-            <code>web/config.example.js</code> para conectar esta interface ao seu projeto
-            Firebase.
-          </p>
-        </section>
+    <div id="revenuecat-panel" class="app-shell hidden">
+      <aside class="sidebar">
+        <div class="sidebar-brand">
+          <span class="brand-mark" aria-hidden="true">CF</span>
+          <div>
+            <strong>CodeFusion</strong>
+            <span>Backoffice</span>
+          </div>
+        </div>
 
-        <section id="auth-panel" class="panel auth-panel">
-          <div class="auth-card">
-            <p class="eyebrow" id="auth-panel-eyebrow">Sessão</p>
-            <h2 id="auth-panel-title">Verificando acesso...</h2>
-            <p id="auth-panel-description" class="auth-card-text">
-              Aguarde enquanto confirmamos sua sessão.
-            </p>
-            <button id="login-button" class="button button-google hidden" type="button" disabled>
-              <span class="google-mark" aria-hidden="true">
-                <svg viewBox="0 0 18 18" focusable="false">
+        <nav class="sidebar-nav" aria-label="Navegação principal">
+          <p class="sidebar-section-label">Operações</p>
+          <button class="sidebar-nav-item is-active" type="button" data-view="rifa">
+            <svg class="nav-icon" viewBox="0 0 20 20" aria-hidden="true">
+              <path
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                d="M3 6.5a1.5 1.5 0 0 1 1.5-1.5h11A1.5 1.5 0 0 1 17 6.5V8a1.5 1.5 0 0 0 0 3v1.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 3 12.5V11a1.5 1.5 0 0 0 0-3V6.5Z M8 6v8 M11 6v8"
+              />
+            </svg>
+            <span>Consultar Rifa</span>
+          </button>
+          <button class="sidebar-nav-item" type="button" data-view="revenuecat">
+            <svg class="nav-icon" viewBox="0 0 20 20" aria-hidden="true">
+              <path
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                d="M10 10.5a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z M4 16.5c0-2.5 2.7-4.5 6-4.5s6 2 6 4.5"
+              />
+            </svg>
+            <span>Consultar Cliente</span>
+          </button>
+        </nav>
+
+        <div class="sidebar-footer">
+          <div id="auth-identity" class="auth-identity hidden">
+            <span class="auth-avatar" aria-hidden="true"></span>
+            <div class="auth-identity-info">
+              <strong id="auth-identity-name">Operador</strong>
+              <span id="auth-identity-email"></span>
+            </div>
+            <button
+              id="logout-button"
+              class="icon-button hidden"
+              type="button"
+              title="Sair"
+              aria-label="Sair"
+            >
+              <svg viewBox="0 0 20 20" aria-hidden="true">
+                <path
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="M12.5 14.5 16 11l-3.5-3.5 M16 11H7 M11 4H5a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h6"
+                />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      <main class="workspace">
+        <section id="rifa-view" class="view">
+          <header class="view-header">
+            <div class="view-header-text">
+              <p class="view-eyebrow">Suporte · Rifa</p>
+              <h1>Consultar rifa</h1>
+              <p class="view-subtitle">
+                Busque por Rifa ID ou e-mail. Gerencie bloqueio, dias grátis e dados do cliente.
+              </p>
+            </div>
+          </header>
+
+          <div class="view-toolbar">
+            <form id="rifa-form" class="search-form">
+              <div class="search-input-wrap">
+                <svg class="search-icon" viewBox="0 0 20 20" aria-hidden="true">
                   <path
-                    fill="#4285F4"
-                    d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.71-1.57 2.68-3.9 2.68-6.62Z"
-                  />
-                  <path
-                    fill="#34A853"
-                    d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.81.54-1.84.86-3.04.86-2.34 0-4.33-1.58-5.04-3.7H.96v2.33A9 9 0 0 0 9 18Z"
-                  />
-                  <path
-                    fill="#FBBC05"
-                    d="M3.96 10.72A5.41 5.41 0 0 1 3.68 9c0-.6.1-1.19.28-1.72V4.95H.96A9 9 0 0 0 0 9c0 1.45.35 2.82.96 4.05l3-2.33Z"
-                  />
-                  <path
-                    fill="#EA4335"
-                    d="M9 3.58c1.32 0 2.5.45 3.44 1.33l2.58-2.58C13.46.9 11.43 0 9 0A9 9 0 0 0 .96 4.95l3 2.33c.71-2.12 2.7-3.7 5.04-3.7Z"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                    d="M9 15a6 6 0 1 0 0-12 6 6 0 0 0 0 12Z M13.5 13.5 17 17"
                   />
                 </svg>
-              </span>
-              <span>Entrar com Google</span>
-            </button>
-            <div id="auth-feedback" class="feedback"></div>
+                <input
+                  id="rifa-id"
+                  name="rifaId"
+                  type="text"
+                  placeholder="Rifa ID ou e-mail do cliente"
+                  autocomplete="off"
+                  required
+                />
+              </div>
+              <button id="rifa-submit" class="button button-primary" type="submit">Consultar</button>
+            </form>
+            <div id="rifa-feedback" class="feedback"></div>
           </div>
+
+          <div id="rifa-results" class="view-body results-stack hidden"></div>
         </section>
 
-        <section id="revenuecat-panel" class="operations-panel hidden">
-          <div class="lookup-strip">
-            <article class="lookup-module lookup-module-rifa">
-              <div class="workspace-heading">
-                <div>
-                  <p class="eyebrow">Rifa</p>
-                  <h2>Consultar rifa</h2>
-                  <p class="section-copy">Firestore, status, e-mail e ações de suporte.</p>
-                </div>
-              </div>
+        <section id="revenuecat-view" class="view hidden">
+          <header class="view-header">
+            <div class="view-header-text">
+              <p class="view-eyebrow">Suporte · RevenueCat</p>
+              <h1>Consultar cliente</h1>
+              <p class="view-subtitle">
+                Busque por App User ID. Veja acessos, assinaturas, histórico e conceda acesso
+                manual.
+              </p>
+            </div>
+            <button
+              id="reload-history-button"
+              class="button button-secondary hidden"
+              type="button"
+            >
+              Atualizar busca
+            </button>
+          </header>
 
-              <form id="rifa-form" class="lookup-form">
-                <label class="field grow">
-                  <span>Rifa ID ou e-mail</span>
-                  <input
-                    id="rifa-id"
-                    name="rifaId"
-                    type="text"
-                    placeholder="Ex.: Vh0pG8lYwqQ8k2... ou cliente@example.com"
-                    required
+          <div id="revenuecat-config-summary" class="info-banner hidden"></div>
+
+          <div class="view-toolbar">
+            <form id="revenuecat-form" class="search-form">
+              <div class="search-input-wrap">
+                <svg class="search-icon" viewBox="0 0 20 20" aria-hidden="true">
+                  <path
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                    d="M9 15a6 6 0 1 0 0-12 6 6 0 0 0 0 12Z M13.5 13.5 17 17"
                   />
-                </label>
-                <button class="button button-primary" type="submit">Consultar rifa</button>
-              </form>
-
-              <div id="rifa-feedback" class="feedback"></div>
-            </article>
-
-            <article class="lookup-module lookup-module-revenuecat">
-              <div class="workspace-heading">
-                <div>
-                  <p class="eyebrow">RevenueCat</p>
-                  <h2>Consultar cliente</h2>
-                  <p class="section-copy">App User ID, acessos, assinaturas e histórico.</p>
-                </div>
-                <button
-                  id="reload-history-button"
-                  class="button button-secondary hidden"
-                  type="button"
-                >
-                  Atualizar busca
-                </button>
+                </svg>
+                <input
+                  id="revenuecat-app-user-id"
+                  name="appUserId"
+                  type="text"
+                  placeholder="App User ID (ex.: user_123)"
+                  autocomplete="off"
+                  required
+                />
               </div>
-
-              <div id="revenuecat-config-summary" class="info-banner hidden"></div>
-
-              <form id="revenuecat-form" class="lookup-form">
-                <label class="field grow">
-                  <span>App User ID</span>
-                  <input
-                    id="revenuecat-app-user-id"
-                    name="appUserId"
-                    type="text"
-                    placeholder="Ex.: user_123"
-                    required
-                  />
-                </label>
-                <button class="button button-primary" type="submit">Consultar cliente</button>
-              </form>
-
-              <div id="revenuecat-feedback" class="feedback"></div>
-            </article>
+              <button class="button button-primary" type="submit">Consultar</button>
+            </form>
+            <div id="revenuecat-feedback" class="feedback"></div>
           </div>
 
-          <div class="results-board">
-            <section class="result-area result-area-rifa">
-              <div class="result-area-heading">
-                <p class="eyebrow">Resultado da rifa</p>
-                <h2>Dados operacionais</h2>
-              </div>
-              <div id="rifa-results" class="results-stack hidden"></div>
-            </section>
-
-            <section class="result-area result-area-revenuecat">
-              <div class="result-area-heading">
-                <p class="eyebrow">Resultado RevenueCat</p>
-                <h2>Cliente e assinaturas</h2>
-              </div>
-              <div id="revenuecat-results" class="results-stack hidden"></div>
-            </section>
-          </div>
+          <div id="revenuecat-results" class="view-body results-stack hidden"></div>
         </section>
       </main>
     </div>
 
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
-    <script src="./config.js?v=2026-06-06-rifa-ux-refine"></script>
+    <script src="./config.js?v=2026-06-07-redesign-v4"></script>
     <!-- ?v= evita app.js antigo em cache após deploy; suba o valor quando mudar o front. -->
-    <script src="./app.js?v=2026-06-06-rifa-ux-refine"></script>
+    <script src="./app.js?v=2026-06-07-redesign-v4"></script>
   </body>
 </html>

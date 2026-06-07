@@ -1,6 +1,6 @@
 (function bootstrap() {
   /** Incremente ao mudar o front; confirme no console se o deploy chegou ao browser. */
-  const BACKOFFICE_BUILD_ID = "2026-06-06-rifa-ux-refine";
+  const BACKOFFICE_BUILD_ID = "2026-06-06-redesign-v2";
   console.info("[backoffice] app.js carregado", BACKOFFICE_BUILD_ID, {
     href: typeof location !== "undefined" ? location.href : "",
   });
@@ -46,6 +46,7 @@
     authIdentity: document.getElementById("auth-identity"),
     authIdentityName: document.getElementById("auth-identity-name"),
     authIdentityEmail: document.getElementById("auth-identity-email"),
+    authAvatar: document.querySelector("#auth-identity .auth-avatar"),
     authPanel: document.getElementById("auth-panel"),
     authPanelEyebrow: document.getElementById("auth-panel-eyebrow"),
     authPanelTitle: document.getElementById("auth-panel-title"),
@@ -62,6 +63,7 @@
     reloadHistoryButton: document.getElementById("reload-history-button"),
     rifaForm: document.getElementById("rifa-form"),
     rifaInput: document.getElementById("rifa-id"),
+    rifaSubmit: document.getElementById("rifa-submit"),
     rifaFeedback: document.getElementById("rifa-feedback"),
     rifaResults: document.getElementById("rifa-results"),
   };
@@ -399,6 +401,9 @@
 
     nodes.authIdentityName.textContent = displayName;
     nodes.authIdentityEmail.textContent = email;
+    if (nodes.authAvatar) {
+      nodes.authAvatar.textContent = getInitials(displayName);
+    }
     nodes.authIdentity.classList.toggle("hidden", !state.user);
   }
 
@@ -544,11 +549,39 @@
   }
 
   function clearRifaResults() {
+    state.rifa = null;
     if (!nodes.rifaResults) {
       return;
     }
     nodes.rifaResults.innerHTML = "";
     hideElement(nodes.rifaResults);
+  }
+
+  function setRifaSubmitMode(mode) {
+    const btn = nodes.rifaSubmit;
+    if (!btn) return;
+    if (mode === "clear") {
+      btn.dataset.mode = "clear";
+      btn.type = "button";
+      btn.textContent = "Limpar";
+    } else {
+      btn.dataset.mode = "search";
+      btn.type = "submit";
+      btn.textContent = "Consultar";
+    }
+  }
+
+  function setRifaSubmitLoading(isLoading) {
+    const btn = nodes.rifaSubmit;
+    if (!btn) return;
+    if (isLoading) {
+      btn.disabled = true;
+      btn.setAttribute("aria-busy", "true");
+      btn.innerHTML = '<span class="button-spinner" aria-hidden="true"></span> Consultando…';
+    } else {
+      btn.disabled = false;
+      btn.removeAttribute("aria-busy");
+    }
   }
 
   function clearSearchResults() {
@@ -578,6 +611,41 @@
     return new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 2 }).format(parsed);
   }
 
+  function formatCurrencyBRL(value) {
+    if (value === null || value === undefined || value === "") {
+      return "Não informado";
+    }
+    const parsed = typeof value === "number" ? value : Number(value);
+    if (!Number.isFinite(parsed)) {
+      return String(value);
+    }
+    return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(parsed);
+  }
+
+  function parsePurchasedNumbers(value) {
+    if (Array.isArray(value)) {
+      return value;
+    }
+    if (typeof value === "string" && value.trim()) {
+      try {
+        const parsed = JSON.parse(value);
+        return Array.isArray(parsed) ? parsed : null;
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  function computeRealProfit(data) {
+    const purchased = parsePurchasedNumbers(data?.purchased_numbers);
+    const unit = Number.isFinite(Number(data?.price)) ? Number(data.price) : null;
+    if (!purchased || unit === null) {
+      return null;
+    }
+    return unit * purchased.length;
+  }
+
   function pickFirstText(...values) {
     for (const value of values) {
       const text = String(value ?? "").trim();
@@ -605,8 +673,13 @@
   }
 
   function getRifaImageLinks(data) {
-    if (Array.isArray(data?.imageLinks)) {
-      return data.imageLinks.filter((item) => typeof item === "string" && item.trim());
+    const arr = Array.isArray(data?.imagesLinks)
+      ? data.imagesLinks
+      : Array.isArray(data?.imageLinks)
+        ? data.imageLinks
+        : null;
+    if (arr) {
+      return arr.filter((item) => typeof item === "string" && item.trim());
     }
     if (typeof data?.imageUrl === "string" && data.imageUrl.trim()) {
       return [data.imageUrl.trim()];
@@ -649,10 +722,43 @@
     `;
   }
 
+  function renderSpecValue(value, meta = "") {
+    const isEmpty =
+      value === null ||
+      value === undefined ||
+      value === "" ||
+      value === "Não informado" ||
+      value === "Nao informado";
+    const valueHtml = isEmpty
+      ? '<span class="spec-value spec-empty">—</span>'
+      : `<span class="spec-value">${escapeHtml(value)}</span>`;
+    const cleanMeta = String(meta || "").trim();
+    const metaIsEmpty =
+      !cleanMeta ||
+      /(:\s*)?(Não informado|Nao informado)\s*$/.test(cleanMeta) ||
+      cleanMeta === "Não informado";
+    const metaHtml = metaIsEmpty ? "" : `<span class="spec-meta">${escapeHtml(cleanMeta)}</span>`;
+    return `${valueHtml}${metaHtml}`;
+  }
+
+  function renderSpecValueMono(value) {
+    const isEmpty =
+      value === null || value === undefined || value === "" || value === "Não informado";
+    if (isEmpty) {
+      return '<span class="spec-value spec-empty">—</span>';
+    }
+    return `<span class="spec-value mono">${escapeHtml(value)}</span>`;
+  }
+
+  const ICON_LOCK_CLOSED = `<svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="10" height="7" rx="1.2"/><path d="M5 7V5a3 3 0 0 1 6 0v2"/></svg>`;
+  const ICON_LOCK_OPEN = `<svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="10" height="7" rx="1.2"/><path d="M5 7V5a3 3 0 0 1 5.2-2"/></svg>`;
+  const ICON_PLUS = `<svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 3.5v9 M3.5 8h9"/></svg>`;
+  const ICON_CHEVRON_RIGHT = `<svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m6 4 4 4-4 4"/></svg>`;
+
   function renderRifaThumb(imageLinks, title) {
     const first = Array.isArray(imageLinks) ? imageLinks.find(Boolean) : null;
     if (!first) {
-      return '<span class="rifa-thumb rifa-thumb-empty"></span>';
+      return "";
     }
     return `
       <span class="rifa-thumb">
@@ -699,19 +805,38 @@
         : state === "locked"
           ? "Bloqueada"
           : "Status não informado";
-    const buyersCount = Array.isArray(data?.buyers) ? data.buyers.length : null;
-    const reservedBuyersCount = Array.isArray(data?.reservedBuyers) ? data.reservedBuyers.length : null;
+
+    const slots = Number.isFinite(Number(data?.slots)) ? Number(data.slots) : null;
+    const purchased = parsePurchasedNumbers(data?.purchased_numbers);
+    const purchasedCount = purchased ? purchased.length : null;
+    const soldPercent =
+      slots && slots > 0 && purchasedCount !== null
+        ? Math.round((purchasedCount / slots) * 100)
+        : null;
+    const realProfit = computeRealProfit(data);
+
     const parts = [];
-    if (buyersCount !== null) {
-      parts.push(`${buyersCount} comprador(es)`);
+    if (purchasedCount !== null && slots !== null) {
+      parts.push(
+        soldPercent !== null
+          ? `${purchasedCount}/${slots} (${soldPercent}%)`
+          : `${purchasedCount}/${slots}`,
+      );
+    } else if (purchasedCount !== null) {
+      parts.push(`${purchasedCount} vendido(s)`);
     }
-    if (reservedBuyersCount !== null) {
-      parts.push(`${reservedBuyersCount} reservado(s)`);
+    if (realProfit !== null) {
+      parts.push(`Lucro ${formatCurrencyBRL(realProfit)}`);
     }
-    if (data?.freeTrialActive || data?.freeTrialExpiresAt) {
-      parts.push(`Trial ${formatBoolean(data?.freeTrialActive).toLowerCase()}`);
+
+    if (!parts.length) {
+      const buyersCount = Array.isArray(data?.buyers) ? data.buyers.length : null;
+      const reservedBuyersCount = Array.isArray(data?.reservedBuyers) ? data.reservedBuyers.length : null;
+      if (buyersCount !== null) parts.push(`${buyersCount} comprador(es)`);
+      if (reservedBuyersCount !== null) parts.push(`${reservedBuyersCount} reservado(s)`);
     }
-    return renderCellStack(status, parts.join(" | "));
+
+    return renderCellStack(status, parts.join(" · "));
   }
 
   function renderDetailItem(label, value, options = {}) {
@@ -796,13 +921,11 @@
     const rows = [];
     const excludedKeys = new Set([
       "unlockPrice",
+      "price",
       "unlocked",
-      "currentProfit",
       "freeTrialActive",
       "imageLinks",
-      "freeTrialExpiresAt",
-      "unlockedAt",
-      "unlockReason",
+      "imagesLinks",
       "reservedBuyers",
       "buyers",
       "title",
@@ -819,10 +942,9 @@
       "phoneNumber",
       "whatsapp",
       "raffleDate",
-      "claimedAt",
-      "reclaimedAt",
-      "recoveryUsedAt",
       "imageUrl",
+      "slots",
+      "purchased_numbers",
     ]);
 
     const input = data && typeof data === "object" ? data : {};
@@ -944,14 +1066,13 @@
     const countsHtml = countsByApp.length
       ? countsByApp
           .map(
-            (item) => `
-              <span class="mini-badge">
-                ${escapeHtml(item.label || item.appKey)}: ${escapeHtml(String(item.count || 0))}
-              </span>
-            `,
+            (item) =>
+              `<span>${escapeHtml(String(item.count || 0))} ${
+                Number(item.count) === 1 ? "rifa" : "rifas"
+              } em ${escapeHtml(item.label || item.appKey)}</span>`,
           )
           .join("")
-      : '<span class="mini-badge">Nenhuma rifa encontrada</span>';
+      : '<span class="empty">Nenhuma rifa encontrada</span>';
 
     const rows = matches.map((match) => ({
       appKey: match.appKey || "",
@@ -976,9 +1097,7 @@
           </span>
         </header>
 
-        <div class="rifa-correlation-summary">
-          ${countsHtml}
-        </div>
+        <p class="correlation-counts">${countsHtml}</p>
 
         ${
           rows.length
@@ -1009,12 +1128,12 @@
                     key: "rifaId",
                     render: (row) => `
                       <button
-                        class="button button-secondary button-compact"
+                        class="link-action"
                         type="button"
                         data-rifa-action="open-related-rifa"
                         data-rifa-id="${escapeHtml(row.rifaId)}"
                       >
-                        Abrir rifa
+                        Abrir ${ICON_CHEVRON_RIGHT}
                       </button>
                     `,
                   },
@@ -1056,10 +1175,6 @@
           </div>
           <div class="detail-grid">
             ${renderDetailItem("Título", title, { wide: true })}
-            ${renderDetailItem("Documento", match?.firestoreDocumentId || "Não informado", { mono: true })}
-            ${renderDetailItem("Coleção", match?.collection || "Não informado")}
-            ${renderDetailItem("App", match?.label || match?.appKey || "Não informado")}
-            ${renderDetailItem("Projeto", match?.projectId || "Não informado", { mono: true })}
           </div>
         </div>
 
@@ -1080,28 +1195,12 @@
           </div>
           <div class="detail-grid">
             ${renderDetailItem("Data da rifa", formatMaybeDate(data?.raffleDate), { wide: true })}
-            ${renderDetailItem("Preço", data?.unlockPrice ?? "Não informado")}
-            ${renderDetailItem("Receita atual", formatNumber(data?.currentProfit))}
+            ${renderDetailItem("Preço", formatCurrencyBRL(data?.price ?? data?.unlockPrice))}
+            ${renderDetailItem("Receita atual", formatCurrencyBRL(computeRealProfit(data)))}
           </div>
         </div>
 
         <div class="rifa-detail-section">
-          <div class="section-heading compact">
-            <h3>Acesso e recuperação</h3>
-          </div>
-          <div class="detail-grid">
-            ${renderDetailItem("Desbloqueio", formatBoolean(interpretRifaLockState(data).chipUnlocked))}
-            ${renderDetailItem("Desbloqueada em", formatMaybeDate(data?.unlockedAt))}
-            ${renderDetailItem("Motivo", data?.unlockReason || "Não informado")}
-            ${renderDetailItem("Free trial ativo", formatBoolean(data?.freeTrialActive))}
-            ${renderDetailItem("Free trial expira", formatMaybeDate(data?.freeTrialExpiresAt))}
-            ${renderDetailItem("Claimed at", formatMaybeDate(data?.claimedAt))}
-            ${renderDetailItem("Reclaimed at", formatMaybeDate(data?.reclaimedAt))}
-            ${renderDetailItem("Recovery used at", formatMaybeDate(data?.recoveryUsedAt))}
-          </div>
-        </div>
-
-        <div class="rifa-detail-section rifa-detail-section-wide">
           <div class="section-heading compact">
             <h3>Mídia</h3>
           </div>
@@ -1144,10 +1243,21 @@
     const unlockReason = data?.unlockReason;
     const reservedBuyersCount = Array.isArray(data?.reservedBuyers) ? data.reservedBuyers.length : null;
     const buyersCount = Array.isArray(data?.buyers) ? data.buyers.length : null;
+    const slots = Number.isFinite(Number(data?.slots)) ? Number(data.slots) : null;
+    const purchasedNumbers = parsePurchasedNumbers(data?.purchased_numbers);
+    const purchasedCount = purchasedNumbers ? purchasedNumbers.length : null;
+    const soldPercent =
+      slots && slots > 0 && purchasedCount !== null
+        ? Math.round((purchasedCount / slots) * 100)
+        : null;
+    const unitPrice = Number.isFinite(Number(data?.price)) ? Number(data.price) : null;
+    const realProfit =
+      unitPrice !== null && purchasedCount !== null ? unitPrice * purchasedCount : null;
     const imageLinks = getRifaImageLinks(data);
 
     const photo = renderRifaPhoto(imageLinks);
     const toggleLabel = lockState === "unlocked" ? "Bloquear rifa" : "Desbloquear rifa";
+    const toggleIcon = lockState === "unlocked" ? ICON_LOCK_CLOSED : ICON_LOCK_OPEN;
     const actionAttrs = `data-app-key="${escapeHtml(appKey)}"`;
     const lockControlsHtml =
       lockState === "unknown"
@@ -1158,6 +1268,7 @@
                     data-rifa-action="lock-rifa"
                     ${actionAttrs}
                   >
+                    <span class="button-icon">${ICON_LOCK_CLOSED}</span>
                     Bloquear rifa
                   </button>
                   <button
@@ -1166,16 +1277,18 @@
                     data-rifa-action="unlock-rifa"
                     ${actionAttrs}
                   >
+                    <span class="button-icon">${ICON_LOCK_OPEN}</span>
                     Desbloquear rifa
                   </button>
                 `
         : `
                   <button
-                    class="button button-secondary button-compact"
+                    class="button button-primary"
                     type="button"
                     data-rifa-action="toggle-lock"
                     ${actionAttrs}
                   >
+                    <span class="button-icon">${toggleIcon}</span>
                     ${escapeHtml(toggleLabel)}
                   </button>
                 `;
@@ -1203,79 +1316,90 @@
               ${renderProjectAvatar(project, "project-avatar-large")}
               <div class="record-title">
                 <h3>${escapeHtml(project.label)}</h3>
-                <p>
-                  <span class="mono">${escapeHtml(match?.projectId || "-")}</span>
-                  | ID <span class="mono">${escapeHtml(match?.rifaId || "-")}</span>
-                </p>
               </div>
           </div>
           <div class="record-status">
             <span class="status-chip ${statusClass}">${escapeHtml(statusLabel)}</span>
-            ${photo}
           </div>
         </header>
 
-        <div class="record-actions status-chip-row">
-          ${lockControlsHtml}
-          <div class="inline-days">
-            <input
-              class="input-compact"
-              type="number"
-              inputmode="numeric"
-              min="1"
-              step="1"
-              placeholder="Dias"
-              aria-label="Dias grátis"
-              data-rifa-days-input="1"
-            />
-            <button
-              class="button button-secondary button-compact"
-              type="button"
-              data-rifa-action="add-free-days"
-              ${actionAttrs}
-            >
-              Adicionar dias grátis
-            </button>
+        <div class="rifa-actions-bar">
+          <div class="rifa-actions-group">
+            <span class="action-group-label">Acesso</span>
+            <div class="rifa-actions-group-actions">
+              ${lockControlsHtml}
+            </div>
+          </div>
+          <div class="rifa-actions-divider" aria-hidden="true"></div>
+          <div class="rifa-actions-group">
+            <span class="action-group-label">Trial grátis</span>
+            <div class="rifa-actions-group-actions">
+              <span class="input-with-suffix">
+                <input
+                  class="input-compact"
+                  type="number"
+                  inputmode="numeric"
+                  min="1"
+                  step="1"
+                  placeholder="7"
+                  aria-label="Dias grátis"
+                  data-rifa-days-input="1"
+                />
+                <span class="input-suffix">dias</span>
+              </span>
+              <button
+                class="button button-secondary button-compact"
+                type="button"
+                data-rifa-action="add-free-days"
+                ${actionAttrs}
+              >
+                <span class="button-icon">${ICON_PLUS}</span>
+                Adicionar
+              </button>
+            </div>
           </div>
         </div>
 
-        <dl class="info-grid">
+        <dl class="spec-grid">
           <div>
-            <dt>Documento</dt>
+            <dt>Lucro atual</dt>
             <dd>
-              <strong class="mono">${escapeHtml(match?.firestoreDocumentId || "Não informado")}</strong>
-              <span>${escapeHtml(match?.collection || "Coleção não informada")}</span>
-            </dd>
-          </div>
-          <div>
-            <dt>Preço / receita</dt>
-            <dd>
-              <strong>${escapeHtml(unlockPrice ?? "Não informado")}</strong>
-              <span>Lucro atual: ${escapeHtml(formatNumber(currentProfit))}</span>
+              ${renderSpecValue(
+                formatCurrencyBRL(realProfit),
+                `Preço: ${formatCurrencyBRL(unitPrice ?? unlockPrice)}`,
+              )}
             </dd>
           </div>
           <div>
             <dt>Free trial</dt>
             <dd>
-              <strong>${escapeHtml(freeTrialLabel || "Não informado")}</strong>
+              ${renderSpecValue(freeTrialLabel)}
             </dd>
           </div>
           <div>
             <dt>Desbloqueio</dt>
             <dd>
-              <strong>${escapeHtml(formatBoolean(unlocked))}</strong>
-              <span>${escapeHtml(unlockDetail)}</span>
+              ${renderSpecValue(formatBoolean(unlocked), unlockDetail)}
             </dd>
           </div>
           <div>
             <dt>Compradores</dt>
             <dd>
-              <strong>${escapeHtml(buyersCount === null ? "Não informado" : String(buyersCount))}</strong>
-              ${
-                reservedBuyersCount === null
-                  ? ""
-                  : `<span>Reservados: ${escapeHtml(String(reservedBuyersCount))}</span>`
-              }
+              ${renderSpecValue(
+                buyersCount === null ? null : String(buyersCount),
+                reservedBuyersCount === null ? "" : `Reservados: ${reservedBuyersCount}`,
+              )}
+            </dd>
+          </div>
+          <div>
+            <dt>Vendidos</dt>
+            <dd>
+              ${renderSpecValue(
+                soldPercent === null ? null : `${soldPercent}%`,
+                slots !== null && purchasedCount !== null
+                  ? `${purchasedCount} de ${slots} números`
+                  : "",
+              )}
             </dd>
           </div>
         </dl>
@@ -1307,6 +1431,7 @@
       ? `${correlationHtml}${matchesHtml}`
       : '<div class="empty-state">Nenhuma rifa encontrada.</div>';
     showElement(nodes.rifaResults);
+    setRifaSubmitMode("clear");
   }
 
   function getCurrentAccess(summary) {
@@ -1699,7 +1824,7 @@
     }
 
     if (!options.preserveResults) {
-      clearSearchResults();
+      clearRifaResults();
     }
     if (nodes.rifaInput) {
       nodes.rifaInput.value = value;
@@ -1724,7 +1849,7 @@
       return;
     }
 
-    clearSearchResults();
+    clearRifaResults();
     setFeedback(nodes.rifaFeedback, "Buscando rifas por e-mail...", null);
 
     const payload = await apiRequest(`/rifa/by-email/${encodeURIComponent(value)}`);
@@ -1931,7 +2056,7 @@
 
     nodes.revenueCatForm.addEventListener("submit", async (event) => {
       event.preventDefault();
-      clearSearchResults();
+      clearRevenueCatResults();
 
       try {
         await loadRevenueCat(nodes.revenueCatInput.value.trim());
@@ -1942,17 +2067,47 @@
 
     nodes.rifaForm?.addEventListener("submit", async (event) => {
       event.preventDefault();
+
+      if (nodes.rifaSubmit?.dataset.mode === "clear") {
+        if (nodes.rifaInput) nodes.rifaInput.value = "";
+        setFeedback(nodes.rifaFeedback, "", null);
+        clearRifaResults();
+        nodes.rifaInput?.focus();
+        return;
+      }
+
       const value = nodes.rifaInput?.value?.trim();
       if (!value) {
         setFeedback(nodes.rifaFeedback, "Informe o Rifa ID ou e-mail.", "error");
         return;
       }
 
+      clearRifaResults();
+      setRifaSubmitLoading(true);
       try {
         await loadRifaLookup(value);
       } catch (error) {
         clearRifaResults();
+        setRifaSubmitMode("search");
         setFeedback(nodes.rifaFeedback, error.message, "error");
+      } finally {
+        setRifaSubmitLoading(false);
+      }
+    });
+
+    nodes.rifaSubmit?.addEventListener("click", (event) => {
+      if (nodes.rifaSubmit.dataset.mode !== "clear") return;
+      event.preventDefault();
+      if (nodes.rifaInput) nodes.rifaInput.value = "";
+      setFeedback(nodes.rifaFeedback, "", null);
+      clearRifaResults();
+      setRifaSubmitMode("search");
+      nodes.rifaInput?.focus();
+    });
+
+    nodes.rifaInput?.addEventListener("input", () => {
+      if (nodes.rifaSubmit?.dataset.mode === "clear") {
+        setRifaSubmitMode("search");
       }
     });
 
@@ -2168,7 +2323,7 @@
         return;
       }
 
-      clearSearchResults();
+      clearRevenueCatResults();
 
       try {
         await loadRevenueCat(appUserId);
@@ -2227,7 +2382,49 @@
     });
   }
 
+  function setupViewRouting() {
+    const navItems = Array.from(document.querySelectorAll("[data-view]"));
+    const views = {
+      rifa: document.getElementById("rifa-view"),
+      revenuecat: document.getElementById("revenuecat-view"),
+    };
+    const STORAGE_KEY = "backoffice:active-view";
+
+    function activate(viewKey) {
+      if (!views[viewKey]) {
+        return;
+      }
+      Object.entries(views).forEach(([key, element]) => {
+        if (!element) {
+          return;
+        }
+        element.classList.toggle("hidden", key !== viewKey);
+      });
+      navItems.forEach((button) => {
+        button.classList.toggle("is-active", button.dataset.view === viewKey);
+      });
+      try {
+        sessionStorage.setItem(STORAGE_KEY, viewKey);
+      } catch (error) {
+        /* sessionStorage indisponível (modo privado) — ignorar */
+      }
+    }
+
+    navItems.forEach((button) => {
+      button.addEventListener("click", () => activate(button.dataset.view));
+    });
+
+    let saved = null;
+    try {
+      saved = sessionStorage.getItem(STORAGE_KEY);
+    } catch (error) {
+      /* ignore */
+    }
+    activate(saved && views[saved] ? saved : "rifa");
+  }
+
   attachEvents();
+  setupViewRouting();
   initFirebase();
 
   function isLocalEnvironment() {
