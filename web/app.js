@@ -1,6 +1,6 @@
 (function bootstrap() {
   /** Incremente ao mudar o front; confirme no console se o deploy chegou ao browser. */
-  const BACKOFFICE_BUILD_ID = "2026-06-06-redesign-v2";
+  const BACKOFFICE_BUILD_ID = "2026-06-08-revoke-access";
   console.info("[backoffice] app.js carregado", BACKOFFICE_BUILD_ID, {
     href: typeof location !== "undefined" ? location.href : "",
   });
@@ -515,6 +515,7 @@
       }
       const error = new Error(payload.error?.message || "Não foi possível concluir a operação.");
       error.status = response.status;
+      error.details = payload.error?.details || null;
       throw error;
     }
 
@@ -677,6 +678,62 @@
       return null;
     }
     return unit * purchased.length;
+  }
+
+  const RIFA_FEE_TIERS = [
+    { maxRevenue: 100, fee: 7.99 },
+    { maxRevenue: 200, fee: 16.99 },
+    { maxRevenue: 400, fee: 26.99 },
+    { maxRevenue: 700, fee: 36.99 },
+    { maxRevenue: 1000, fee: 47.99 },
+    { maxRevenue: 2000, fee: 67.99 },
+    { maxRevenue: 4000, fee: 77.99 },
+    { maxRevenue: 7000, fee: 127.99 },
+    { maxRevenue: 10000, fee: 199.99 },
+    { maxRevenue: 20000, fee: 249.99 },
+    { maxRevenue: 30000, fee: 499.99 },
+    { maxRevenue: 50000, fee: 999.99 },
+    { maxRevenue: 70000, fee: 1499.99 },
+    { maxRevenue: 100000, fee: 1999.99 },
+    { maxRevenue: 150000, fee: 2999.99 },
+    { maxRevenue: Infinity, fee: 3999.99 },
+  ];
+
+  function computePotentialRevenue(data) {
+    const price = Number(data?.price);
+    const slots = Number(data?.slots);
+    if (!Number.isFinite(price) || !Number.isFinite(slots) || price <= 0 || slots <= 0) {
+      return null;
+    }
+    return price * slots;
+  }
+
+  function getRifaFeeTier(revenue) {
+    if (!Number.isFinite(revenue) || revenue <= 0) {
+      return null;
+    }
+    const tier = RIFA_FEE_TIERS.find((t) => revenue <= t.maxRevenue) || RIFA_FEE_TIERS[RIFA_FEE_TIERS.length - 1];
+    const tierLabel = Number.isFinite(tier.maxRevenue)
+      ? `Até ${formatCurrencyBRL(tier.maxRevenue)}`
+      : `Acima de ${formatCurrencyBRL(RIFA_FEE_TIERS[RIFA_FEE_TIERS.length - 2].maxRevenue)}`;
+    const percentOfRevenue = (tier.fee / revenue) * 100;
+    return { fee: tier.fee, tierLabel, percentOfRevenue };
+  }
+
+  function formatPercentBR(value) {
+    if (!Number.isFinite(value)) {
+      return "—";
+    }
+    return `${new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value)}%`;
+  }
+
+  function buildRifaFeeSupportMessage(data) {
+    const revenue = computePotentialRevenue(data);
+    const tier = revenue !== null ? getRifaFeeTier(revenue) : null;
+    if (!revenue || !tier) {
+      return null;
+    }
+    return `Olá! A taxa de ativação da sua rifa é de ${formatCurrencyBRL(tier.fee)}.`;
   }
 
   function pickFirstText(...values) {
@@ -1186,6 +1243,56 @@
     `;
   }
 
+  function renderRifaFeeSection(match) {
+    const data = match?.data || {};
+    const appKey = match?.appKey || "";
+    const revenue = computePotentialRevenue(data);
+    const tier = revenue !== null ? getRifaFeeTier(revenue) : null;
+
+    const price = Number(data?.price);
+    const slots = Number(data?.slots);
+    const priceLabel = Number.isFinite(price) && price > 0 ? formatCurrencyBRL(price) : "Não informado";
+    const slotsLabel =
+      Number.isFinite(slots) && slots > 0
+        ? new Intl.NumberFormat("pt-BR").format(slots)
+        : "Não informado";
+    const revenueLabel = revenue !== null ? formatCurrencyBRL(revenue) : "Não informado";
+    const tierLabelText = tier ? tier.tierLabel : "Não informado";
+    const feeLabel = tier ? formatCurrencyBRL(tier.fee) : "Não informado";
+    const percentLabel = tier ? formatPercentBR(tier.percentOfRevenue) : "Não informado";
+
+    const canCopy = Boolean(tier);
+    const copyButton = `
+      <button
+        class="button button-secondary button-compact rifa-fee-copy"
+        type="button"
+        data-rifa-action="copy-fee-message"
+        data-app-key="${escapeHtml(appKey)}"
+        ${canCopy ? "" : "disabled"}
+      >
+        Copiar mensagem para o suporte
+      </button>
+    `;
+
+    return `
+      <div class="rifa-detail-section">
+        <div class="section-heading compact">
+          <h3>Taxa de ativação</h3>
+        </div>
+        <div class="detail-grid">
+          ${renderDetailItem("Faturamento potencial", revenueLabel, { wide: true })}
+          ${renderDetailItem("Cálculo", `${slotsLabel} cotas × ${priceLabel}`)}
+          ${renderDetailItem("Faixa", tierLabelText)}
+          ${renderDetailItem("Taxa de ativação", feeLabel)}
+          ${renderDetailItem("% do faturamento", percentLabel)}
+        </div>
+        <div class="rifa-fee-actions">
+          ${copyButton}
+        </div>
+      </div>
+    `;
+  }
+
   function renderRifaOperationalDetails(match) {
     const data = match?.data || {};
     const title = getRifaTitle(data);
@@ -1233,6 +1340,8 @@
             ${renderDetailItem("Receita atual", formatCurrencyBRL(computeRealProfit(data)))}
           </div>
         </div>
+
+        ${renderRifaFeeSection(match)}
 
         <div class="rifa-detail-section">
           <div class="section-heading compact">
@@ -1586,14 +1695,28 @@
     const projectId = customer.project?.projectId || "";
     const appUserId = customer.appUserId || "";
     const manual = getManualAccessPresentation(customer);
+    const canRevoke = Boolean(customer.manualProAccess?.isActive);
 
     return `
       <section class="result-section result-section-wide">
         <div class="section-heading compact">
           <h3>Acesso manual</h3>
-          <span class="status-chip ${manual.tone ? `status-chip-${manual.tone}` : ""}">
-            ${escapeHtml(manual.title)}
-          </span>
+          <div class="section-heading-actions">
+            <span class="status-chip ${manual.tone ? `status-chip-${manual.tone}` : ""}">
+              ${escapeHtml(manual.title)}
+            </span>
+            ${
+              canRevoke
+                ? `<button
+                  class="button button-compact button-danger-ghost"
+                  type="button"
+                  data-action="revoke"
+                >
+                  Remover acesso
+                </button>`
+                : ""
+            }
+          </div>
         </div>
         <div class="manual-access-card">
           <div class="manual-access-overview">
@@ -1806,6 +1929,12 @@
           </div>
         </section>
 
+        ${
+          customer.isEmpty
+            ? `<div class="empty-customer-notice">Sem compras ou acessos registrados — use a liberação manual abaixo.</div>`
+            : ""
+        }
+
         ${renderMatchSections(match)}
       </article>
     `;
@@ -1963,6 +2092,37 @@
       setManualAccessFormFeedback(form, error.message, "error");
     } finally {
       setManualAccessFormBusy(form, false);
+    }
+  }
+
+  async function handleRevokePromotionalAccess(form, triggerButton = null) {
+    const projectId = form.dataset.projectId;
+    const appUserId = form.dataset.appUserId;
+
+    if (!window.confirm("Remover o acesso manual deste cliente?")) {
+      return;
+    }
+
+    try {
+      if (triggerButton) {
+        triggerButton.disabled = true;
+      }
+      setManualAccessFormBusy(form, true);
+      setManualAccessFormFeedback(form, "Removendo acesso manual...", null);
+
+      await apiRequest(
+        `/revenuecat/projects/${encodeURIComponent(projectId)}/customer/${encodeURIComponent(appUserId)}/revoke-promotional-access`,
+        { method: "POST" },
+      );
+
+      await refreshRevenueCatAfterManualAccess(appUserId, "Acesso manual removido com sucesso.");
+    } catch (error) {
+      setManualAccessFormFeedback(form, error.message, "error");
+    } finally {
+      setManualAccessFormBusy(form, false);
+      if (triggerButton?.isConnected) {
+        triggerButton.disabled = false;
+      }
     }
   }
 
@@ -2322,6 +2482,42 @@
         return;
       }
 
+      if (rifaAction === "copy-fee-message") {
+        const appKey = button.dataset.appKey || "";
+        const match = state.rifa?.matches?.find((item) => item.appKey === appKey);
+        if (!match) {
+          logRifa("copy-fee-message abortado: appKey não encontrado", { appKey });
+          setFeedback(nodes.rifaFeedback, "App da rifa não encontrado. Consulte a rifa novamente.", "error");
+          return;
+        }
+        const message = buildRifaFeeSupportMessage(match.data || {});
+        if (!message) {
+          setFeedback(nodes.rifaFeedback, "Preço ou número de cotas indisponível para calcular a taxa.", "error");
+          return;
+        }
+        try {
+          if (navigator.clipboard?.writeText) {
+            await navigator.clipboard.writeText(message);
+          } else {
+            const textarea = document.createElement("textarea");
+            textarea.value = message;
+            textarea.setAttribute("readonly", "");
+            textarea.style.position = "absolute";
+            textarea.style.left = "-9999px";
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand("copy");
+            document.body.removeChild(textarea);
+          }
+          setFeedback(nodes.rifaFeedback, "Mensagem copiada para a área de transferência.", "success");
+          logRifa("copy-fee-message concluído", { appKey });
+        } catch (error) {
+          logRifa("copy-fee-message falhou", { message: error?.message });
+          setFeedback(nodes.rifaFeedback, "Não foi possível copiar a mensagem.", "error");
+        }
+        return;
+      }
+
       if (rifaAction === "open-related-rifa") {
         const relatedRifaId = button.dataset.rifaId || "";
         if (!relatedRifaId) {
@@ -2372,6 +2568,16 @@
         const form = grantButton.closest(".manual-access-form");
         if (form) {
           await handleGrantPromotionalAccess(form, grantButton.dataset.grantKind);
+        }
+        return;
+      }
+
+      const revokeButton = closestFromClickTarget(event.target, '[data-action="revoke"]');
+      if (revokeButton) {
+        const section = revokeButton.closest(".result-section");
+        const form = section?.querySelector(".manual-access-form");
+        if (form) {
+          await handleRevokePromotionalAccess(form, revokeButton);
         }
       }
     });

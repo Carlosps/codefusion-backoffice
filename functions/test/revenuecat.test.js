@@ -10,6 +10,7 @@ const {
   computePromotionalExpiresAt,
   findCustomersAcrossProjects,
   grantRevenueCatPromotionalAccess,
+  revokeRevenueCatPromotionalAccess,
 } = require("../src/revenuecat");
 
 const payload = {
@@ -216,7 +217,7 @@ test("findCustomersAcrossProjects returns matches sorted by active access", asyn
   assert.equal(result.searchedProjectCount, 2);
 });
 
-test("findCustomersAcrossProjects ignores projects without relevant subscriber data", async () => {
+test("findCustomersAcrossProjects returns empty-but-historical subscribers as matches", async () => {
   process.env.REVENUECAT_PROJECTS_JSON = JSON.stringify([
     {
       projectId: "rifa-facil",
@@ -231,36 +232,34 @@ test("findCustomersAcrossProjects ignores projects without relevant subscriber d
   ]);
   delete process.env.REVENUECAT_SECRET_KEY;
 
-  await assert.rejects(
-    () =>
-      findCustomersAcrossProjects("ghost_user", async (projectId) => {
-        if (projectId === "rifa-facil") {
-          return {
-            project: {
-              projectId: "rifa-facil",
-              label: "Rifa Facil",
-            },
-            app_user_id: "ghost_user",
-            request_date: "2026-04-03T10:00:00Z",
-            subscriber: {
-              original_app_user_id: "ghost_user",
-              subscriptions: {},
-              entitlements: {},
-              non_subscriptions: {},
-            },
-          };
-        }
+  const result = await findCustomersAcrossProjects("ghost_user", async (projectId) => {
+    if (projectId === "rifa-facil") {
+      return {
+        project: {
+          projectId: "rifa-facil",
+          label: "Rifa Facil",
+        },
+        app_user_id: "ghost_user",
+        request_date: "2026-04-03T10:00:00Z",
+        subscriber: {
+          original_app_user_id: "ghost_user",
+          subscriptions: {},
+          entitlements: {},
+          non_subscriptions: {},
+        },
+      };
+    }
 
-        if (projectId === "rifa-digital") {
-          throw Object.assign(new Error("Cliente não encontrado no RevenueCat."), { status: 404 });
-        }
+    if (projectId === "rifa-digital") {
+      throw Object.assign(new Error("Cliente não encontrado no RevenueCat."), { status: 404 });
+    }
 
-        throw new Error(`Projeto inesperado: ${projectId}`);
-      }),
-    (error) =>
-      error.status === 404 &&
-      error.message === "Cliente não encontrado nos aplicativos configurados.",
-  );
+    throw new Error(`Projeto inesperado: ${projectId}`);
+  });
+
+  assert.equal(result.totalMatches, 1);
+  assert.equal(result.matches[0].customer.project.projectId, "rifa-facil");
+  assert.equal(result.matches[0].customer.isEmpty, true);
 });
 
 test("findCustomersAcrossProjects ignores subscriber created at request time", async () => {
@@ -292,11 +291,14 @@ test("findCustomersAcrossProjects ignores subscriber created at request time", a
       })),
     (error) =>
       error.status === 404 &&
-      error.message === "Cliente não encontrado nos aplicativos configurados.",
+      error.message === "Cliente não encontrado nos aplicativos configurados (Rifa Facil)." &&
+      Array.isArray(error.details?.ghostMatches) &&
+      error.details.ghostMatches.length === 1 &&
+      error.details.ghostMatches[0].projectId === "rifa-facil",
   );
 });
 
-test("findCustomersAcrossProjects ignores subscriber with historical first_seen and no purchases", async () => {
+test("findCustomersAcrossProjects treats subscriber created within 5 min as ghost", async () => {
   process.env.REVENUECAT_PROJECTS_JSON = JSON.stringify([
     {
       projectId: "rifa-facil",
@@ -308,16 +310,16 @@ test("findCustomersAcrossProjects ignores subscriber with historical first_seen 
 
   await assert.rejects(
     () =>
-      findCustomersAcrossProjects("user_first_seen", async () => ({
+      findCustomersAcrossProjects("ghost_within_window", async () => ({
         project: {
           projectId: "rifa-facil",
           label: "Rifa Facil",
         },
-        app_user_id: "user_first_seen",
-        request_date: "2026-04-03T10:00:00Z",
+        app_user_id: "ghost_within_window",
+        request_date: "2026-04-03T10:05:00Z",
         subscriber: {
-          original_app_user_id: "user_first_seen",
-          first_seen: "2026-04-01T00:00:00Z",
+          original_app_user_id: "ghost_within_window",
+          first_seen: "2026-04-03T10:03:00Z",
           subscriptions: {},
           entitlements: {},
           non_subscriptions: {},
@@ -325,8 +327,70 @@ test("findCustomersAcrossProjects ignores subscriber with historical first_seen 
       })),
     (error) =>
       error.status === 404 &&
-      error.message === "Cliente não encontrado nos aplicativos configurados.",
+      Array.isArray(error.details?.ghostMatches) &&
+      error.details.ghostMatches.length === 1,
   );
+});
+
+test("findCustomersAcrossProjects keeps subscriber created outside 5 min window", async () => {
+  process.env.REVENUECAT_PROJECTS_JSON = JSON.stringify([
+    {
+      projectId: "rifa-facil",
+      label: "Rifa Facil",
+      secretKey: "secret_1",
+    },
+  ]);
+  delete process.env.REVENUECAT_SECRET_KEY;
+
+  const result = await findCustomersAcrossProjects("user_outside_window", async () => ({
+    project: {
+      projectId: "rifa-facil",
+      label: "Rifa Facil",
+    },
+    app_user_id: "user_outside_window",
+    request_date: "2026-04-03T10:15:00Z",
+    subscriber: {
+      original_app_user_id: "user_outside_window",
+      first_seen: "2026-04-03T10:00:00Z",
+      subscriptions: {},
+      entitlements: {},
+      non_subscriptions: {},
+    },
+  }));
+
+  assert.equal(result.totalMatches, 1);
+  assert.equal(result.matches[0].customer.isEmpty, true);
+});
+
+test("findCustomersAcrossProjects returns subscriber with historical first_seen and no purchases", async () => {
+  process.env.REVENUECAT_PROJECTS_JSON = JSON.stringify([
+    {
+      projectId: "rifa-facil",
+      label: "Rifa Facil",
+      secretKey: "secret_1",
+    },
+  ]);
+  delete process.env.REVENUECAT_SECRET_KEY;
+
+  const result = await findCustomersAcrossProjects("user_first_seen", async () => ({
+    project: {
+      projectId: "rifa-facil",
+      label: "Rifa Facil",
+    },
+    app_user_id: "user_first_seen",
+    request_date: "2026-04-03T10:00:00Z",
+    subscriber: {
+      original_app_user_id: "user_first_seen",
+      first_seen: "2026-04-01T00:00:00Z",
+      subscriptions: {},
+      entitlements: {},
+      non_subscriptions: {},
+    },
+  }));
+
+  assert.equal(result.totalMatches, 1);
+  assert.equal(result.matches[0].customer.isEmpty, true);
+  assert.equal(result.matches[0].customer.status.hasActiveAccess, false);
 });
 
 test("findCustomersAcrossProjects keeps subscriber with subscription even if first_seen matches request", async () => {
@@ -370,7 +434,7 @@ test("findCustomersAcrossProjects keeps subscriber with subscription even if fir
   assert.equal(result.matches[0].customer.status.hasActiveSubscription, true);
 });
 
-test("findCustomersAcrossProjects returns only projects with useful data", async () => {
+test("findCustomersAcrossProjects hides empty matches when there is real data", async () => {
   process.env.REVENUECAT_PROJECTS_JSON = JSON.stringify([
     {
       projectId: "rifa-facil",
@@ -438,6 +502,7 @@ test("findCustomersAcrossProjects returns only projects with useful data", async
   assert.equal(result.totalMatches, 1);
   assert.equal(result.matches[0].customer.project.projectId, "rifa-digital");
   assert.equal(result.matches[0].customer.currentProduct, "pro_monthly");
+  assert.equal(result.matches[0].customer.isEmpty, false);
 });
 
 test("findCustomersAcrossProjects keeps subscriber with non-subscription purchase", async () => {
@@ -618,6 +683,46 @@ test("grantRevenueCatPromotionalAccess sends end_time_ms to promotional endpoint
   );
   assert.equal(request.options.method, "POST");
   assert.equal(typeof JSON.parse(request.options.body).end_time_ms, "number");
+  assert.equal(result.entitlementId, "premium");
+});
+
+test("revokeRevenueCatPromotionalAccess posts to revoke_promotionals endpoint with empty body", async () => {
+  process.env.REVENUECAT_PROJECTS_JSON = JSON.stringify([
+    {
+      projectId: "ios-main",
+      label: "iOS Main",
+      secretKey: "secret_1",
+      entitlementId: "premium",
+    },
+  ]);
+
+  let request = null;
+  const result = await revokeRevenueCatPromotionalAccess(
+    "ios-main",
+    "user_123",
+    async (url, options) => {
+      request = { url, options };
+      return {
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            request_date: "2026-04-03T10:00:00Z",
+            subscriber: {
+              entitlements: {},
+              subscriptions: {},
+            },
+          }),
+      };
+    },
+  );
+
+  assert.equal(
+    request.url,
+    "https://api.revenuecat.com/v1/subscribers/user_123/entitlements/premium/revoke_promotionals",
+  );
+  assert.equal(request.options.method, "POST");
+  assert.equal(request.options.body, undefined);
   assert.equal(result.entitlementId, "premium");
 });
 

@@ -28,6 +28,7 @@ const {
   findCustomersAcrossProjects,
   getPromotionalEntitlementId,
   grantRevenueCatPromotionalAccess,
+  revokeRevenueCatPromotionalAccess,
 } = require("./src/revenuecat");
 const {
   getTargetFirestoreDb,
@@ -777,6 +778,54 @@ async function grantPromotionalAccess(req, res, projectId, appUserId) {
   }
 }
 
+async function revokePromotionalAccess(req, res, projectId, appUserId) {
+  const actor = await requireUser(req);
+  validateAppUserId(appUserId);
+  assertRateLimit(`${actor.uid}:write`, {
+    max: Number(process.env.API_RATE_LIMIT_WRITE_PER_WINDOW || 20),
+  });
+
+  let entitlementId = getPromotionalEntitlementId();
+
+  try {
+    const subscriberPayload = await fetchRevenueCatSubscriber(projectId, appUserId);
+    entitlementId = getPromotionalEntitlementId(subscriberPayload.project);
+    await revokeRevenueCatPromotionalAccess(projectId, appUserId);
+
+    await logAuditEvent({
+      module: "revenuecat",
+      action: "revoke_promotional_access",
+      actor,
+      target: { projectId, appUserId },
+      status: "success",
+      metadata: { entitlementId },
+    });
+
+    sendJson(res, 200, {
+      ok: true,
+      result: {
+        message: "Acesso manual removido com sucesso.",
+        projectId,
+        appUserId,
+        entitlementId,
+      },
+    });
+  } catch (error) {
+    await logAuditEvent({
+      module: "revenuecat",
+      action: "revoke_promotional_access",
+      actor,
+      target: { projectId, appUserId },
+      status: "error",
+      metadata: {
+        entitlementId,
+        message: error.message,
+      },
+    });
+    throw error;
+  }
+}
+
 async function getFirestoreConfig(req, res) {
   await requireUser(req);
 
@@ -1117,6 +1166,25 @@ exports.api = onRequest(
         !segments[6]
       ) {
         await grantPromotionalAccess(
+          req,
+          res,
+          decodeURIComponent(segments[2]),
+          decodeURIComponent(segments[4]),
+        );
+        return;
+      }
+
+      if (
+        req.method === "POST" &&
+        resource === "revenuecat" &&
+        scope === "projects" &&
+        segments[2] &&
+        segments[3] === "customer" &&
+        segments[4] &&
+        segments[5] === "revoke-promotional-access" &&
+        !segments[6]
+      ) {
+        await revokePromotionalAccess(
           req,
           res,
           decodeURIComponent(segments[2]),

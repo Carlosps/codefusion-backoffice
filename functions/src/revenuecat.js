@@ -1,5 +1,7 @@
 const { HttpError } = require("./errors");
 
+const GHOST_WINDOW_MS = 5 * 60 * 1000;
+
 function getRevenueCatBaseUrl() {
   return process.env.REVENUECAT_API_BASE_URL || "https://api.revenuecat.com/v1";
 }
@@ -504,7 +506,13 @@ function isGhostSubscriber(payload) {
     return false;
   }
 
-  return toSecondPrecisionTimestamp(subscriber.first_seen) === toSecondPrecisionTimestamp(payload.request_date);
+  const firstSeenTs = toTimestamp(subscriber.first_seen);
+  const requestDateTs = toTimestamp(payload.request_date);
+  if (!firstSeenTs || !requestDateTs) {
+    return false;
+  }
+
+  return Math.abs(firstSeenTs - requestDateTs) <= GHOST_WINDOW_MS;
 }
 
 function hasRelevantSubscriberData(payload) {
@@ -558,6 +566,11 @@ function buildCustomerSummary(payload) {
     subscriptions.some((item) => item.isLifetime) || nonSubscriptions.some((item) => item.isLifetime);
   const hasActiveSubscription = subscriptions.some((item) => item.hasActiveAccess);
   const hasActiveNonSubscription = nonSubscriptions.some((item) => item.hasActiveAccess);
+  const isEmpty =
+    subscriptions.length === 0 &&
+    nonSubscriptions.length === 0 &&
+    entitlements.all.length === 0 &&
+    !subscriber.original_purchase_date;
 
   return {
     project: payload.project || null,
@@ -568,6 +581,7 @@ function buildCustomerSummary(payload) {
     requestDate: normalizeDate(payload.request_date),
     managementUrl: subscriber.management_url || null,
     currentProduct: pickCurrentProduct(subscriptions, nonSubscriptions),
+    isEmpty,
     status: {
       hasActiveEntitlement: entitlements.active.length > 0,
       hasActiveSubscription,
@@ -651,22 +665,27 @@ async function findCustomersAcrossProjects(appUserId, fetcher = fetchRevenueCatS
   const settled = await Promise.allSettled(
     projects.map(async (project) => {
       const payload = await fetcher(project.projectId, appUserId);
-      const hasRelevantData = hasRelevantSubscriberData(payload);
+      const isGhost = isGhostSubscriber(payload);
       return {
-        hasRelevantData,
+        isGhost,
         customer: buildCustomerSummary(payload),
         history: buildCustomerHistory(payload),
       };
     }),
   );
 
-  const matches = [];
+  const allMatches = [];
+  const ghostMatches = [];
   const errors = [];
 
   settled.forEach((result, index) => {
+    const project = projects[index];
+
     if (result.status === "fulfilled") {
-      if (result.value.hasRelevantData) {
-        matches.push({
+      if (result.value.isGhost) {
+        ghostMatches.push({ projectId: project.projectId, label: project.label });
+      } else {
+        allMatches.push({
           customer: result.value.customer,
           history: result.value.history,
         });
@@ -677,12 +696,15 @@ async function findCustomersAcrossProjects(appUserId, fetcher = fetchRevenueCatS
     const error = result.reason;
     if (error && error.status !== 404) {
       errors.push({
-        projectId: projects[index].projectId,
+        projectId: project.projectId,
         message: error.message || "Falha ao consultar o RevenueCat.",
         status: error.status || 502,
       });
     }
   });
+
+  const matchesWithData = allMatches.filter((match) => !match.customer.isEmpty);
+  const matches = matchesWithData.length ? matchesWithData : allMatches;
 
   if (!matches.length) {
     if (errors.length) {
@@ -693,7 +715,17 @@ async function findCustomersAcrossProjects(appUserId, fetcher = fetchRevenueCatS
       throw new HttpError(safeStatus, first.message || "Falha ao consultar o RevenueCat.");
     }
 
-    throw new HttpError(404, "Cliente não encontrado nos aplicativos configurados.");
+    const searchedProjects = projects.map((project) => ({
+      projectId: project.projectId,
+      label: project.label,
+    }));
+
+    const labels = searchedProjects.map((entry) => entry.label).join(", ");
+    throw new HttpError(
+      404,
+      `Cliente não encontrado nos aplicativos configurados (${labels}).`,
+      { searchedProjects, ghostMatches },
+    );
   }
 
   return {
@@ -763,6 +795,30 @@ async function grantRevenueCatPromotionalAccess(
   };
 }
 
+async function revokeRevenueCatPromotionalAccess(projectId, appUserId, fetchImpl = fetch) {
+  const project = getRevenueCatProject(projectId);
+  const entitlementId = getPromotionalEntitlementId(project);
+  const { response, payload } = await revenueCatRequest(
+    project,
+    `/subscribers/${encodeURIComponent(appUserId)}/entitlements/${encodeURIComponent(entitlementId)}/revoke_promotionals`,
+    { method: "POST" },
+    fetchImpl,
+  );
+
+  if (!response.ok) {
+    throw mapRevenueCatError(
+      response,
+      payload,
+      "Falha ao remover acesso promocional no RevenueCat.",
+    );
+  }
+
+  return {
+    entitlementId,
+    customer: toRevenueCatSubscriberPayload(project, appUserId, payload),
+  };
+}
+
 module.exports = {
   buildManualProAccess,
   computePromotionalExpiresAt,
@@ -775,6 +831,7 @@ module.exports = {
   buildCustomerSummary,
   findCustomersAcrossProjects,
   grantRevenueCatPromotionalAccess,
+  revokeRevenueCatPromotionalAccess,
   hasRelevantSubscriberData,
   isGhostSubscriber,
   isPromotionalEntitlement,
