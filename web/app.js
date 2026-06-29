@@ -1316,6 +1316,7 @@
           </div>
           <div class="detail-grid">
             ${renderDetailItem("Título", title, { wide: true })}
+            ${renderDetailItem("Descrição", data?.description || "Não informado", { wide: true })}
           </div>
         </div>
 

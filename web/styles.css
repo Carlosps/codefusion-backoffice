@@ -42,8 +42,8 @@
   --shadow-md: 0 4px 12px rgba(11, 18, 32, 0.06);
   --shadow-lg: 0 12px 28px rgba(11, 18, 32, 0.08);
 
-  --font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-display: "Space Grotesk", "IBM Plex Sans", system-ui, sans-serif;
+  --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 
   --sidebar-width: 240px;
@@ -263,10 +263,72 @@ code,
    App shell (sidebar + workspace) — visible only when authenticated
    ========================================================================= */
 .app-shell {
-  display: grid;
-  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   min-height: 100vh;
   background: var(--bg);
+}
+
+/* ---------- Topbar ---------- */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
+.topbar-inner {
+  display: grid;
+  grid-template-columns: minmax(220px, var(--sidebar-width)) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  min-height: 56px;
+  padding: 10px 16px;
+}
+
+.topbar-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.topbar-brand-text {
+  display: grid;
+  min-width: 0;
+}
+
+.topbar-brand-text strong {
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.topbar-brand-text span,
+.breadcrumb-root {
+  color: var(--ink-muted);
+  font-size: 0.76rem;
+  line-height: 1.2;
+}
+
+.topbar-context {
+  min-width: 0;
+}
+
+.topbar-user {
+  min-width: 0;
+}
+
+.topbar-user .auth-identity {
+  max-width: 320px;
+}
+
+.app-body {
+  display: grid;
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 /* ---------- Sidebar ---------- */
@@ -277,9 +339,7 @@ code,
   padding: 20px 14px;
   background: var(--surface);
   border-right: 1px solid var(--line);
-  position: sticky;
-  top: 0;
-  height: 100vh;
+  min-height: 0;
 }
 
 .sidebar-brand {
@@ -446,6 +506,11 @@ code,
   display: flex;
   flex-direction: column;
   gap: 20px;
+}
+
+.workspace-inner {
+  width: 100%;
+  max-width: 1280px;
 }
 
 .view {
@@ -1905,8 +1970,20 @@ tbody tr:last-child td {
 }
 
 @media (max-width: 1024px) {
-  /* Collapse sidebar into a top bar */
-  .app-shell {
+  .topbar-inner {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .topbar-context {
+    display: none;
+  }
+
+  .topbar-user .auth-identity {
+    max-width: none;
+  }
+
+  .app-body {
     grid-template-columns: 1fr;
   }
 
