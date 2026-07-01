@@ -1,6 +1,6 @@
 (function bootstrap() {
   /** Incremente ao mudar o front; confirme no console se o deploy chegou ao browser. */
-  const BACKOFFICE_BUILD_ID = "2026-06-08-revoke-access";
+  const BACKOFFICE_BUILD_ID = "2026-07-01-rifa-profile-pix";
   console.info("[backoffice] app.js carregado", BACKOFFICE_BUILD_ID, {
     href: typeof location !== "undefined" ? location.href : "",
   });
@@ -32,8 +32,26 @@
     },
   };
 
+  const PIX_TYPE_OPTIONS = [
+    { value: "0", label: "Indefinido" },
+    { value: "1", label: "CPF" },
+    { value: "2", label: "CNPJ" },
+    { value: "3", label: "E-mail" },
+    { value: "4", label: "Telefone" },
+    { value: "5", label: "Chave aleatória" },
+  ];
+
   const RIFA_EDITABLE_FIELDS = [
-    { field: "email", label: "E-mail", type: "email" },
+    { field: "name", label: "Nome da rifa", type: "text" },
+    { field: "description", label: "Descrição", component: "textarea", wide: true },
+    { field: "pixKey", label: "Chave Pix", type: "text", autocomplete: "off" },
+    {
+      field: "pixType",
+      label: "Tipo da chave Pix",
+      component: "select",
+      options: PIX_TYPE_OPTIONS,
+    },
+    { field: "email", label: "E-mail operacional", type: "email" },
   ];
 
   const relativeTimeFormatter = new Intl.RelativeTimeFormat("pt-BR", {
@@ -750,10 +768,40 @@
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim().toLowerCase());
   }
 
+  function onlyDigits(value) {
+    return String(value || "").replace(/\D/g, "");
+  }
+
+  function inferPixType(value) {
+    const text = String(value || "").trim();
+    const digits = onlyDigits(text);
+    if (!text) {
+      return 0;
+    }
+    if (looksLikeEmail(text)) {
+      return 3;
+    }
+    if (digits.length === 14) {
+      return 2;
+    }
+    if (/^\+?[\d\s().-]{10,24}$/.test(text) && digits.length >= 10 && digits.length <= 13 && /[()+\s]/.test(text)) {
+      return 4;
+    }
+    if (digits.length === 11) {
+      return 1;
+    }
+    return 5;
+  }
+
+  function formatPixType(value) {
+    const option = PIX_TYPE_OPTIONS.find((item) => item.value === String(value ?? "").trim());
+    return option ? option.label : "Não informado";
+  }
+
   function getRifaTitle(data) {
     return pickFirstText(
-      data?.title,
       data?.name,
+      data?.title,
       data?.raffleName,
       data?.raffleTitle,
       data?.description,
@@ -976,16 +1024,50 @@
     const appKey = match?.appKey || "";
     const fieldsHtml = RIFA_EDITABLE_FIELDS.map((config) => {
       const value = data?.[config.field] ?? "";
+      const fieldClass = `field grow ${config.wide ? "field-wide" : ""}`;
+      const commonAttrs = `
+            name="${escapeHtml(config.field)}"
+            data-rifa-edit-input="${escapeHtml(config.field)}"
+      `;
+      if (config.component === "textarea") {
+        return `
+        <label class="${fieldClass}">
+          <span>${escapeHtml(config.label)}</span>
+          <textarea
+            ${commonAttrs}
+            autocomplete="${escapeHtml(config.autocomplete || "off")}"
+          >${escapeHtml(value)}</textarea>
+        </label>
+      `;
+      }
+      if (config.component === "select") {
+        const options = (config.options || [])
+          .map((option) => {
+            const selected = String(option.value) === String(value ?? "").trim();
+            return `
+              <option value="${escapeHtml(option.value)}" ${selected ? "selected" : ""}>
+                ${escapeHtml(option.label)}
+              </option>
+            `;
+          })
+          .join("");
+        return `
+        <label class="${fieldClass}">
+          <span>${escapeHtml(config.label)}</span>
+          <select ${commonAttrs}>
+            ${options}
+          </select>
+        </label>
+      `;
+      }
       return `
-        <label class="field grow">
+        <label class="${fieldClass}">
           <span>${escapeHtml(config.label)}</span>
           <input
-            name="${escapeHtml(config.field)}"
             type="${escapeHtml(config.type || "text")}"
             value="${escapeHtml(value)}"
-            autocomplete="off"
-            required
-            data-rifa-edit-input="${escapeHtml(config.field)}"
+            autocomplete="${escapeHtml(config.autocomplete || "off")}"
+            ${commonAttrs}
           />
         </label>
       `;
@@ -994,14 +1076,16 @@
     return `
       <form class="rifa-edit-form inline-edit-panel" data-rifa-edit-form="1" data-app-key="${escapeHtml(appKey)}">
         <div>
-          <h3>Editar e-mail</h3>
-          <p>Atualize o e-mail operacional salvo no documento da rifa.</p>
+          <h3>Editar dados da rifa</h3>
+          <p>Atualize nome, descrição, Pix e e-mail operacional no documento da rifa.</p>
         </div>
         <div class="inline-edit-fields">
           ${fieldsHtml}
-          <button class="button button-primary" type="submit">
-            Salvar e-mail
-          </button>
+          <div class="inline-edit-actions">
+            <button class="button button-primary" type="submit">
+              Salvar alterações
+            </button>
+          </div>
         </div>
       </form>
     `;
@@ -1025,6 +1109,8 @@
       "description",
       "prize",
       "email",
+      "pixKey",
+      "pixType",
       "ddi",
       "countryCode",
       "phoneDdi",
@@ -1315,7 +1401,7 @@
             <h3>Identificação</h3>
           </div>
           <div class="detail-grid">
-            ${renderDetailItem("Título", title, { wide: true })}
+            ${renderDetailItem("Nome", title, { wide: true })}
             ${renderDetailItem("Descrição", data?.description || "Não informado", { wide: true })}
           </div>
         </div>
@@ -1328,6 +1414,16 @@
             ${renderDetailItem("E-mail", data?.email || "Não informado", { wide: true })}
             ${renderDetailItem("Telefone", phone || "Não informado")}
             ${renderDetailItem("DDI", pickFirstText(data?.ddi, data?.countryCode, data?.phoneDdi) || "Não informado")}
+          </div>
+        </div>
+
+        <div class="rifa-detail-section">
+          <div class="section-heading compact">
+            <h3>Pix</h3>
+          </div>
+          <div class="detail-grid">
+            ${renderDetailItem("Chave Pix", data?.pixKey || "Não informado", { wide: true, mono: true })}
+            ${renderDetailItem("Tipo", formatPixType(data?.pixType))}
           </div>
         </div>
 
@@ -2310,6 +2406,20 @@
       console.warn("[rifa] #rifa-results não existe no DOM; ações de bloqueio/dias grátis não serão ligadas.");
     }
 
+    nodes.rifaResults?.addEventListener("input", (event) => {
+      const input = event.target instanceof Element ? event.target : null;
+      if (!input || input.getAttribute("data-rifa-edit-input") !== "pixKey") {
+        return;
+      }
+
+      const form = input.closest("[data-rifa-edit-form]");
+      const typeInput = form?.querySelector('[name="pixType"]');
+      const pixKey = input.value.trim();
+      if (typeInput && pixKey) {
+        typeInput.value = String(inferPixType(pixKey));
+      }
+    });
+
     nodes.rifaResults?.addEventListener("submit", async (event) => {
       const form = event.target?.closest?.("[data-rifa-edit-form]");
       if (!form) {
@@ -2336,7 +2446,37 @@
         if (!input) {
           continue;
         }
-        updates[config.field] = input.value.trim();
+        const value = input.value.trim();
+        let currentValue = String(match.data?.[config.field] ?? "").trim();
+        if (
+          config.field === "pixType" &&
+          !PIX_TYPE_OPTIONS.some((option) => option.value === currentValue)
+        ) {
+          currentValue = "";
+        }
+        if (value !== currentValue) {
+          updates[config.field] = value;
+        }
+      }
+
+      const pixKeyInput = form.querySelector('[name="pixKey"]');
+      const pixTypeInput = form.querySelector('[name="pixType"]');
+      const pixKeyValue = pixKeyInput?.value?.trim() || "";
+      const hasPixKeyUpdate = Object.prototype.hasOwnProperty.call(updates, "pixKey");
+      const hasPixTypeUpdate = Object.prototype.hasOwnProperty.call(updates, "pixType");
+      if (hasPixKeyUpdate && pixKeyValue) {
+        updates.pixType = Number(pixTypeInput?.value?.trim() || inferPixType(pixKeyValue));
+      } else if (hasPixTypeUpdate && pixKeyValue) {
+        updates.pixKey = pixKeyValue;
+        updates.pixType = Number(updates.pixType);
+      } else if (hasPixTypeUpdate) {
+        setFeedback(nodes.rifaFeedback, "Informe a chave Pix para atualizar o tipo.", "error");
+        return;
+      }
+
+      if (!Object.keys(updates).length) {
+        setFeedback(nodes.rifaFeedback, "Nenhuma alteração para salvar.", null);
+        return;
       }
 
       const buttons = Array.from(form.querySelectorAll("button"));

@@ -1157,9 +1157,19 @@ select:disabled {
 
 .inline-edit-fields {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) auto;
+  grid-template-columns: repeat(2, minmax(220px, 1fr));
   gap: 10px;
   align-items: end;
+}
+
+.inline-edit-fields .field-wide,
+.inline-edit-actions {
+  grid-column: 1 / -1;
+}
+
+.inline-edit-actions {
+  display: flex;
+  justify-content: flex-end;
 }
 
 /* =========================================================================

@@ -252,6 +252,14 @@ Esse deploy publica no Hosting principal do projeto `code-fusion-backoffice` e s
 - `POST /rifa/:rifaId/update-fields`
 - `GET /audit/logs`
 
+Por padrão, `POST /rifa/:rifaId/update-fields` permite editar `email`, `name`,
+`description`, `pixKey` e `pixType`. Se `RIFA_ALLOWED_UPDATE_FIELDS` estiver
+definido no ambiente, essa lista substitui o padrão; inclua esses campos na variável
+para manter a edição de nome, descrição e Pix habilitada no backoffice.
+
+O campo `pixType` segue o contrato do app de rifa: `0` indefinido, `1` CPF,
+`2` CNPJ, `3` e-mail, `4` telefone e `5` chave aleatória.
+
 ## Segurança e modelagem
 
 - O frontend nunca acessa RevenueCat nem Firestore Admin diretamente.
