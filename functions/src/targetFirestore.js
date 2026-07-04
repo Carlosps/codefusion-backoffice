@@ -12,12 +12,16 @@ const DEFAULT_RIFA_LOOKUP_TARGETS = [
     label: "Rifa Facil",
     projectId: "rifa-73864",
     collection: "raffles",
+    buyersCollection: "buyers",
+    reservedBuyersCollection: "reservedBuyers",
   },
   {
     appKey: "rifa-digital",
     label: "Rifa Digital",
     projectId: "rifa-digital-f21e7",
     collection: "raffles",
+    buyersCollection: "buyers",
+    reservedBuyersCollection: "reservedBuyers",
   },
 ];
 
@@ -124,6 +128,10 @@ function normalizeLookupTarget(target, index) {
   const projectId = String(target?.projectId || "").trim();
   const collection = String(target?.collection || "raffles").trim();
   const matchField = String(target?.matchField || "").trim();
+  const buyersCollection = String(target?.buyersCollection || "buyers").trim();
+  const reservedBuyersCollection = String(
+    target?.reservedBuyersCollection || "reservedBuyers",
+  ).trim();
 
   if (!appKey) {
     throw new HttpError(500, "RIFA_LOOKUP_TARGETS contém appKey vazio.");
@@ -134,8 +142,22 @@ function normalizeLookupTarget(target, index) {
   if (!collection) {
     throw new HttpError(500, `Coleção Firestore ausente para ${appKey}.`);
   }
+  if (!buyersCollection) {
+    throw new HttpError(500, `Coleção de compradores ausente para ${appKey}.`);
+  }
+  if (!reservedBuyersCollection) {
+    throw new HttpError(500, `Coleção de reservados ausente para ${appKey}.`);
+  }
 
-  return { appKey, label, projectId, collection, matchField };
+  return {
+    appKey,
+    label,
+    projectId,
+    collection,
+    matchField,
+    buyersCollection,
+    reservedBuyersCollection,
+  };
 }
 
 function parseRifaLookupTargetsJson(value) {

@@ -106,6 +106,8 @@ test("getRifaLookupTargets respects JSON overrides", () => {
       projectId: "custom-project",
       collection: "customRaffles",
       matchField: "rifaId",
+      buyersCollection: "Custom Buyers",
+      reservedBuyersCollection: "Custom Reserved Buyers",
     },
   ]);
 
@@ -117,6 +119,8 @@ test("getRifaLookupTargets respects JSON overrides", () => {
   assert.equal(targets[0].projectId, "custom-project");
   assert.equal(targets[0].collection, "customRaffles");
   assert.equal(targets[0].matchField, "rifaId");
+  assert.equal(targets[0].buyersCollection, "Custom Buyers");
+  assert.equal(targets[0].reservedBuyersCollection, "Custom Reserved Buyers");
 
   delete process.env.RIFA_LOOKUP_TARGETS;
 });

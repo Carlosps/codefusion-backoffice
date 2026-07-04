@@ -1235,6 +1235,137 @@ select:disabled {
   grid-column: 1 / -1;
 }
 
+.rifa-participants-section {
+  padding: 16px 18px 18px;
+  border-bottom: 1px solid var(--line-soft);
+  background: var(--surface);
+}
+
+.rifa-participants-section summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  list-style: none;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.rifa-participants-section summary::-webkit-details-marker {
+  display: none;
+}
+
+.rifa-participants-section summary::after {
+  content: "▸";
+  color: var(--ink-muted);
+  transition: transform 120ms ease;
+}
+
+.rifa-participants-section[open] summary::after {
+  transform: rotate(90deg);
+}
+
+.rifa-participants-section summary span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.rifa-participants-section summary strong {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.rifa-participants-section summary small {
+  color: var(--ink-muted);
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+.rifa-participants-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
+.rifa-participants-search {
+  display: grid;
+  gap: 4px;
+  width: min(360px, 100%);
+}
+
+.rifa-participants-search span {
+  color: var(--ink-muted);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.rifa-participants-search input {
+  width: 100%;
+  min-width: 0;
+}
+
+.rifa-participants-warning {
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  border: 1px solid #fcd9a1;
+  border-radius: var(--radius-sm);
+  background: var(--warn-soft);
+  color: var(--warn);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.rifa-participants-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 12px;
+}
+
+.rifa-participants-group {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.rifa-participants-count {
+  flex: 0 0 auto;
+  padding: 2px 7px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-pill);
+  background: var(--surface-muted);
+  color: var(--ink-muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.rifa-participants-group .table-wrap,
+.rifa-participants-empty {
+  margin-top: 8px;
+}
+
+.rifa-participants-group table {
+  min-width: 360px;
+}
+
+.rifa-numbers-list {
+  display: block;
+  max-width: 420px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.rifa-participants-empty {
+  padding: 18px;
+}
+
 .rifa-fee-actions {
   margin-top: 12px;
   display: flex;
@@ -2044,7 +2175,8 @@ tbody tr:last-child td {
   }
 
   .customer-result .detail-grid,
-  .rifa-details {
+  .rifa-details,
+  .rifa-participants-grid {
     grid-template-columns: 1fr;
   }
 

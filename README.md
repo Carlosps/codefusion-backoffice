@@ -260,6 +260,11 @@ para manter a edição de nome, descrição e Pix habilitada no backoffice.
 O campo `pixType` segue o contrato do app de rifa: `0` indefinido, `1` CPF,
 `2` CNPJ, `3` e-mail, `4` telefone e `5` chave aleatória.
 
+`GET /rifa/:rifaId` também enriquece compradores e reservados a partir das
+coleções raiz `buyers` e `reservedBuyers`. Se algum alvo em `RIFA_LOOKUP_TARGETS`
+usar nomes diferentes, configure `buyersCollection` e `reservedBuyersCollection`
+nesse alvo.
+
 ## Segurança e modelagem
 
 - O frontend nunca acessa RevenueCat nem Firestore Admin diretamente.

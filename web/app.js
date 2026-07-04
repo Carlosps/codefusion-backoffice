@@ -847,6 +847,177 @@
     return formatDate(value, "Não informado");
   }
 
+  function isPlainObject(value) {
+    return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+  }
+
+  function pickParticipantText(source, fields) {
+    if (!isPlainObject(source)) {
+      return "";
+    }
+
+    for (const field of fields) {
+      const value = source[field];
+      if (typeof value === "string" || typeof value === "number") {
+        const text = String(value).trim();
+        if (text) {
+          return text;
+        }
+      }
+    }
+
+    return "";
+  }
+
+  function normalizeRifaNumbersValue(value) {
+    if (value === null || value === undefined || value === "") {
+      return [];
+    }
+
+    if (Array.isArray(value)) {
+      return value.flatMap((item) => normalizeRifaNumbersValue(item));
+    }
+
+    if (isPlainObject(value)) {
+      const nested = pickParticipantText(value, [
+        "number",
+        "numero",
+        "num",
+        "value",
+        "label",
+        "ticket",
+      ]);
+      return nested ? [nested] : [];
+    }
+
+    if (typeof value === "string") {
+      const text = value.trim();
+      if (!text) {
+        return [];
+      }
+
+      if (text.startsWith("[") || text.startsWith("{")) {
+        try {
+          return normalizeRifaNumbersValue(JSON.parse(text));
+        } catch {
+          // Continua com o parser simples abaixo.
+        }
+      }
+
+      return text
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean);
+    }
+
+    if (typeof value === "number" || typeof value === "boolean") {
+      return [String(value)];
+    }
+
+    return [];
+  }
+
+  function getRifaParticipantNumbers(participant, kind) {
+    const fields = [
+      "numbers",
+      "selectedNumbers",
+      "purchasedNumbers",
+      "reservedNumbers",
+      "tickets",
+      "number",
+      "selected_numbers",
+      "purchased_numbers",
+      "reserved_numbers",
+      "ticket",
+      "numeros",
+      "numero",
+    ];
+
+    if (isPlainObject(participant)) {
+      for (const field of fields) {
+        const numbers = normalizeRifaNumbersValue(participant[field]);
+        if (numbers.length) {
+          return numbers;
+        }
+      }
+      return [];
+    }
+
+    return typeof participant === "number" ? normalizeRifaNumbersValue(participant) : [];
+  }
+
+  function normalizeRifaParticipants(value, kind) {
+    const entries = Array.isArray(value) ? value : [];
+    const fallbackLabel = kind === "reserved" ? "Reservado" : "Comprador";
+    const nameFields = [
+      "name",
+      "nome",
+      "buyerName",
+      "customerName",
+      "fullName",
+      "userName",
+      "clientName",
+      "participantName",
+    ];
+
+    return entries.map((entry, index) => {
+      const primitiveName = typeof entry === "string" ? entry.trim() : "";
+      const name =
+        pickParticipantText(entry, nameFields) ||
+        primitiveName ||
+        `${fallbackLabel} ${index + 1}`;
+      const numbers = getRifaParticipantNumbers(entry, kind);
+
+      return {
+        name,
+        numbersLabel: numbers.length ? numbers.join(", ") : "—",
+      };
+    });
+  }
+
+  function getParticipantSortValue(row) {
+    if (Number.isFinite(Number(row?.sortNumber))) {
+      return Number(row.sortNumber);
+    }
+    const numbers = Array.isArray(row?.selectedNumbers) ? row.selectedNumbers : [];
+    const numericValues = numbers
+      .map((value) => Number(String(value).replace(",", ".")))
+      .filter(Number.isFinite);
+    return numericValues.length ? Math.min(...numericValues) : Number.POSITIVE_INFINITY;
+  }
+
+  function normalizeRifaParticipantDetailsRows(value, fallbackPrefix) {
+    const rows = Array.isArray(value) ? value : [];
+    return rows
+      .map((row, index) => {
+        const selectedNumbers = Array.isArray(row?.selectedNumbers)
+          ? row.selectedNumbers
+          : normalizeRifaNumbersValue(row?.selectedNumbers);
+        const fullName = pickFirstText(
+          row?.fullName,
+          row?.name,
+          row?.id ? `${fallbackPrefix} ${row.id}` : "",
+          `${fallbackPrefix} ${index + 1}`,
+        );
+
+        return {
+          id: row?.id || "",
+          name: fullName,
+          phone: row?.phone || "",
+          createdAt: row?.createdAt || "",
+          selectedNumbers,
+          numbersLabel: selectedNumbers.length ? selectedNumbers.join(", ") : "—",
+          sortNumber: getParticipantSortValue({ ...row, selectedNumbers }),
+        };
+      })
+      .sort((a, b) => {
+        if (a.sortNumber !== b.sortNumber) {
+          return a.sortNumber - b.sortNumber;
+        }
+        return a.name.localeCompare(b.name, "pt-BR");
+      });
+  }
+
   function renderProjectLabel(appKey, label, sizeClass = "project-avatar-tiny") {
     const project = {
       projectId: appKey,
@@ -1379,6 +1550,118 @@
     `;
   }
 
+  function renderRifaParticipantGroup(title, rows, emptyText, singularLabel, pluralLabel) {
+    const count = rows.length;
+    const countLabel = `${count} ${count === 1 ? singularLabel : pluralLabel}`;
+
+    return `
+      <div class="rifa-participants-group" data-rifa-participant-group="1">
+        <div class="section-heading compact">
+          <h3>${escapeHtml(title)}</h3>
+          <span class="rifa-participants-count">${escapeHtml(countLabel)}</span>
+        </div>
+        ${
+          count
+            ? renderTable(
+                [
+                  {
+                    label: "Pessoa",
+                    key: "name",
+                    render: (row) => renderCellStack(row.name),
+                  },
+                  {
+                    label: "Telefone",
+                    key: "phone",
+                    render: (row) => escapeHtml(row.phone || "—"),
+                  },
+                  {
+                    label: "Adicionado em",
+                    key: "createdAt",
+                    render: (row) => escapeHtml(formatDate(row.createdAt, "—")),
+                  },
+                  {
+                    label: "Números",
+                    key: "numbersLabel",
+                    render: (row) => `<span class="mono rifa-numbers-list">${escapeHtml(row.numbersLabel)}</span>`,
+                  },
+                ],
+                rows,
+              )
+            : `<div class="empty-state rifa-participants-empty">${escapeHtml(emptyText)}</div>`
+        }
+        <div class="empty-state rifa-participants-filter-empty hidden">
+          Nenhum resultado encontrado para esta busca.
+        </div>
+      </div>
+    `;
+  }
+
+  function renderRifaParticipantsSection(match) {
+    const data = match?.data || {};
+    const participantDetails = match?.participantDetails || {};
+    const enrichedBuyers = normalizeRifaParticipantDetailsRows(
+      participantDetails.buyers,
+      "Comprador",
+    );
+    const enrichedReservedBuyers = normalizeRifaParticipantDetailsRows(
+      participantDetails.reservedBuyers,
+      "Reservado",
+    );
+    const buyers = enrichedBuyers.length
+      ? enrichedBuyers
+      : normalizeRifaParticipants(data?.buyers, "buyer");
+    const reservedBuyers = enrichedReservedBuyers.length
+      ? enrichedReservedBuyers
+      : normalizeRifaParticipants(data?.reservedBuyers, "reserved");
+    const partialErrors = Array.isArray(participantDetails.partialErrors)
+      ? participantDetails.partialErrors
+      : [];
+    const total = buyers.length + reservedBuyers.length;
+
+    return `
+      <details class="rifa-participants-section">
+        <summary>
+          <span>
+            <strong>Compradores e reservados</strong>
+            <small>${escapeHtml(String(total))} pessoa(s) encontrada(s)</small>
+          </span>
+        </summary>
+        <div class="rifa-participants-toolbar">
+          <label class="rifa-participants-search">
+            <span>Buscar</span>
+            <input
+              type="search"
+              placeholder="Nome, telefone ou número"
+              autocomplete="off"
+              data-rifa-participant-search="1"
+            />
+          </label>
+        </div>
+        ${
+          partialErrors.length
+            ? `<p class="rifa-participants-warning">${escapeHtml(partialErrors.length)} lista(s) não puderam ser carregadas completamente.</p>`
+            : ""
+        }
+        <div class="rifa-participants-grid">
+          ${renderRifaParticipantGroup(
+            "Compradores",
+            buyers,
+            "Nenhum comprador encontrado nesta rifa.",
+            "comprador",
+            "compradores",
+          )}
+          ${renderRifaParticipantGroup(
+            "Reservados",
+            reservedBuyers,
+            "Nenhuma reserva encontrada nesta rifa.",
+            "reservado",
+            "reservados",
+          )}
+        </div>
+      </details>
+    `;
+  }
+
   function renderRifaOperationalDetails(match) {
     const data = match?.data || {};
     const title = getRifaTitle(data);
@@ -1643,6 +1926,8 @@
             </dd>
           </div>
         </dl>
+
+        ${renderRifaParticipantsSection(match)}
 
         ${renderRifaEditSection(match)}
 
@@ -2408,6 +2693,25 @@
 
     nodes.rifaResults?.addEventListener("input", (event) => {
       const input = event.target instanceof Element ? event.target : null;
+      if (input?.getAttribute("data-rifa-participant-search") === "1") {
+        const section = input.closest(".rifa-participants-section");
+        const query = String(input.value || "").trim().toLowerCase();
+        section?.querySelectorAll("[data-rifa-participant-group]").forEach((group) => {
+          let visibleRows = 0;
+          group.querySelectorAll("tbody tr").forEach((row) => {
+            const matches = !query || row.textContent.toLowerCase().includes(query);
+            row.classList.toggle("hidden", !matches);
+            if (matches) {
+              visibleRows += 1;
+            }
+          });
+          const filterEmpty = group.querySelector(".rifa-participants-filter-empty");
+          const hasRows = Boolean(group.querySelector("tbody tr"));
+          filterEmpty?.classList.toggle("hidden", !hasRows || visibleRows > 0);
+        });
+        return;
+      }
+
       if (!input || input.getAttribute("data-rifa-edit-input") !== "pixKey") {
         return;
       }

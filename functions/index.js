@@ -53,6 +53,9 @@ const {
   buildRifaEmailCorrelationFromMatches,
   assertEmailCorrelationHasResults,
 } = require("./src/rifaCorrelation");
+const {
+  buildRifaParticipantDetails,
+} = require("./src/rifaParticipants");
 
 initializeApp();
 
@@ -194,7 +197,7 @@ async function getRifa(req, res, rifaId) {
     }
 
     if (docSnap) {
-      matches.push(serializeRifaMatch(normalizedId, target, docSnap));
+      matches.push(await serializeRifaMatch(normalizedId, target, docSnap));
     }
   }
 
@@ -261,7 +264,8 @@ async function getRifaByEmail(req, res, email) {
   });
 }
 
-function serializeRifaMatch(normalizedId, target, docSnap) {
+async function serializeRifaMatch(normalizedId, target, docSnap) {
+  const data = serializeFirestoreValue(docSnap.data() || {});
   return {
     appKey: target.appKey,
     label: target.label,
@@ -269,7 +273,12 @@ function serializeRifaMatch(normalizedId, target, docSnap) {
     collection: target.collection,
     firestoreDocumentId: docSnap.id,
     rifaId: normalizedId,
-    data: serializeFirestoreValue(docSnap.data() || {}),
+    data,
+    participantDetails: await buildRifaParticipantDetails({
+      db: getRifaLookupFirestoreDb(target),
+      target,
+      data,
+    }),
   };
 }
 
