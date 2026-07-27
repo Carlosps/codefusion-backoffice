@@ -9,6 +9,8 @@ const {
   buildCustomerSummary,
   computePromotionalExpiresAt,
   findCustomersAcrossProjects,
+  searchRevenueCatCustomers,
+  fetchRevenueCatSubscriber,
   grantRevenueCatPromotionalAccess,
   revokeRevenueCatPromotionalAccess,
 } = require("../src/revenuecat");
@@ -156,16 +158,16 @@ test("buildCustomerSummary derives expiration for one-time monthly purchase", ()
       label: "Rifa Digital",
     },
     app_user_id: "user_monthly",
-    request_date: "2026-06-03T10:00:00Z",
+    request_date: "2099-06-03T10:00:00Z",
     subscriber: {
       original_app_user_id: "user_monthly",
-      first_seen: "2026-06-03T10:00:00Z",
+      first_seen: "2099-06-03T10:00:00Z",
       subscriptions: {},
       entitlements: {},
       non_subscriptions: {
         pro_mensal: [
           {
-            purchase_date: "2026-06-03T00:00:00Z",
+            purchase_date: "2099-06-03T00:00:00Z",
             store: "play_store",
             is_sandbox: false,
           },
@@ -178,11 +180,153 @@ test("buildCustomerSummary derives expiration for one-time monthly purchase", ()
   const history = buildCustomerHistory(monthlyPayload);
 
   assert.equal(summary.currentProduct, "pro_mensal");
-  assert.equal(summary.status.latestExpirationDate, "2026-07-03T00:00:00.000Z");
+  assert.equal(summary.status.latestExpirationDate, "2099-07-03T00:00:00.000Z");
   assert.equal(summary.status.hasActiveNonSubscription, true);
   assert.equal(summary.status.hasActiveAccess, true);
-  assert.equal(history.items[0].expiresDate, "2026-07-03T00:00:00.000Z");
+  assert.equal(history.items[0].expiresDate, "2099-07-03T00:00:00.000Z");
   assert.equal(history.items[0].accessPeriodLabel, "Mensal");
+});
+
+test("searchRevenueCatCustomers uses V2 and URL-encodes an anonymous App User ID", async () => {
+  process.env.REVENUECAT_PROJECTS_JSON = JSON.stringify([
+    {
+      projectId: "rifa-facil",
+      label: "Rifa Facil",
+      secretKey: "v1_secret",
+      revenueCatProjectId: "proj_rifa",
+      v2SecretKey: "v2_secret",
+    },
+  ]);
+
+  let request = null;
+  const customers = await searchRevenueCatCustomers(
+    "rifa-facil",
+    "$RCAnonymousID:dc3feb2b48af4f1aaafac026ef186da4",
+    async (url, options) => {
+      request = { url, options };
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ items: [{ id: "cust_123" }] }),
+      };
+    },
+  );
+
+  assert.match(request.url, /\/v2\/projects\/proj_rifa\/customers\?/);
+  assert.match(request.url, /search=%24RCAnonymousID%3Adc3feb2b48af4f1aaafac026ef186da4/);
+  assert.equal(request.options.headers.Authorization, "Bearer v2_secret");
+  assert.deepEqual(customers, [{ id: "cust_123" }]);
+});
+
+test("searchRevenueCatCustomers reports a V2 permission error without trying V1", async () => {
+  process.env.REVENUECAT_PROJECTS_JSON = JSON.stringify([
+    {
+      projectId: "rifa-facil",
+      label: "Rifa Facil",
+      secretKey: "v1_secret",
+      revenueCatProjectId: "proj_rifa",
+      v2SecretKey: "v2_secret",
+    },
+  ]);
+
+  await assert.rejects(
+    () =>
+      searchRevenueCatCustomers("rifa-facil", "user_123", async () => ({
+        ok: false,
+        status: 403,
+        text: async () => JSON.stringify({ message: "forbidden" }),
+      })),
+    (error) =>
+      error.status === 502 && error.message.includes("Customer information: Read"),
+  );
+});
+
+test("searchRevenueCatCustomers blocks a project without V2 configuration", async () => {
+  process.env.REVENUECAT_PROJECTS_JSON = JSON.stringify([
+    {
+      projectId: "rifa-facil",
+      label: "Rifa Facil",
+      secretKey: "v1_secret",
+    },
+  ]);
+
+  await assert.rejects(
+    () => searchRevenueCatCustomers("rifa-facil", "user_123"),
+    (error) =>
+      error.status === 412 && error.message.includes("revenueCatProjectId e v2SecretKey"),
+  );
+});
+
+test("findCustomersAcrossProjects only fetches V1 details for projects found by V2", async () => {
+  process.env.REVENUECAT_PROJECTS_JSON = JSON.stringify([
+    {
+      projectId: "rifa-facil",
+      label: "Rifa Facil",
+      secretKey: "secret_1",
+      revenueCatProjectId: "proj_rifa",
+      v2SecretKey: "v2_1",
+    },
+    {
+      projectId: "rifa-digital",
+      label: "Rifa Digital",
+      secretKey: "secret_2",
+      revenueCatProjectId: "proj_digital",
+      v2SecretKey: "v2_2",
+    },
+  ]);
+
+  const v1Calls = [];
+  const result = await findCustomersAcrossProjects(
+    "$RCAnonymousID:new",
+    async (projectId) => (projectId === "rifa-facil" ? [{ id: "cust_1" }] : []),
+    async (projectId, appUserId, options) => {
+      v1Calls.push({ projectId, appUserId, options });
+      return {
+        project: { projectId, label: "Rifa Facil" },
+        app_user_id: appUserId,
+        request_date: "2026-07-27T20:00:00Z",
+        subscriber: {
+          original_app_user_id: appUserId,
+          first_seen: "2026-07-27T20:00:00Z",
+          subscriptions: {},
+          entitlements: {},
+          non_subscriptions: {},
+        },
+      };
+    },
+  );
+
+  assert.equal(result.totalMatches, 1);
+  assert.deepEqual(v1Calls.map((call) => call.projectId), ["rifa-facil"]);
+  assert.equal(v1Calls[0].options.customerConfirmed, true);
+  assert.equal(result.matches[0].customer.isEmpty, true);
+});
+
+test("fetchRevenueCatSubscriber rejects a missing customer before calling V1", async () => {
+  process.env.REVENUECAT_PROJECTS_JSON = JSON.stringify([
+    {
+      projectId: "rifa-facil",
+      label: "Rifa Facil",
+      secretKey: "secret_1",
+      revenueCatProjectId: "proj_rifa",
+      v2SecretKey: "v2_1",
+    },
+  ]);
+
+  let callCount = 0;
+  await assert.rejects(
+    () =>
+      fetchRevenueCatSubscriber("rifa-facil", "missing_user", {
+        searcher: async () => [],
+        fetchImpl: async () => {
+          callCount += 1;
+          throw new Error("V1 não deveria ser chamado");
+        },
+      }),
+    (error) => error.status === 404,
+  );
+
+  assert.equal(callCount, 0);
 });
 
 test("findCustomersAcrossProjects returns matches sorted by active access", async () => {
@@ -262,7 +406,7 @@ test("findCustomersAcrossProjects returns empty-but-historical subscribers as ma
   assert.equal(result.matches[0].customer.isEmpty, true);
 });
 
-test("findCustomersAcrossProjects ignores subscriber created at request time", async () => {
+test("findCustomersAcrossProjects keeps a newly created subscriber returned by the safe lookup", async () => {
   process.env.REVENUECAT_PROJECTS_JSON = JSON.stringify([
     {
       projectId: "rifa-facil",
@@ -272,9 +416,7 @@ test("findCustomersAcrossProjects ignores subscriber created at request time", a
   ]);
   delete process.env.REVENUECAT_SECRET_KEY;
 
-  await assert.rejects(
-    () =>
-      findCustomersAcrossProjects("ghost_with_first_seen", async () => ({
+  const result = await findCustomersAcrossProjects("ghost_with_first_seen", async () => ({
         project: {
           projectId: "rifa-facil",
           label: "Rifa Facil",
@@ -288,17 +430,14 @@ test("findCustomersAcrossProjects ignores subscriber created at request time", a
           entitlements: {},
           non_subscriptions: {},
         },
-      })),
-    (error) =>
-      error.status === 404 &&
-      error.message === "Cliente não encontrado nos aplicativos configurados (Rifa Facil)." &&
-      Array.isArray(error.details?.ghostMatches) &&
-      error.details.ghostMatches.length === 1 &&
-      error.details.ghostMatches[0].projectId === "rifa-facil",
-  );
+      }));
+
+  assert.equal(result.totalMatches, 1);
+  assert.equal(result.matches[0].customer.firstSeen, "2026-04-03T10:00:00.999Z");
+  assert.equal(result.matches[0].customer.isEmpty, true);
 });
 
-test("findCustomersAcrossProjects treats subscriber created within 5 min as ghost", async () => {
+test("findCustomersAcrossProjects does not use a time window to hide a customer", async () => {
   process.env.REVENUECAT_PROJECTS_JSON = JSON.stringify([
     {
       projectId: "rifa-facil",
@@ -308,9 +447,7 @@ test("findCustomersAcrossProjects treats subscriber created within 5 min as ghos
   ]);
   delete process.env.REVENUECAT_SECRET_KEY;
 
-  await assert.rejects(
-    () =>
-      findCustomersAcrossProjects("ghost_within_window", async () => ({
+  const result = await findCustomersAcrossProjects("ghost_within_window", async () => ({
         project: {
           projectId: "rifa-facil",
           label: "Rifa Facil",
@@ -324,12 +461,10 @@ test("findCustomersAcrossProjects treats subscriber created within 5 min as ghos
           entitlements: {},
           non_subscriptions: {},
         },
-      })),
-    (error) =>
-      error.status === 404 &&
-      Array.isArray(error.details?.ghostMatches) &&
-      error.details.ghostMatches.length === 1,
-  );
+      }));
+
+  assert.equal(result.totalMatches, 1);
+  assert.equal(result.matches[0].customer.isEmpty, true);
 });
 
 test("findCustomersAcrossProjects keeps subscriber created outside 5 min window", async () => {
@@ -434,7 +569,7 @@ test("findCustomersAcrossProjects keeps subscriber with subscription even if fir
   assert.equal(result.matches[0].customer.status.hasActiveSubscription, true);
 });
 
-test("findCustomersAcrossProjects hides empty matches when there is real data", async () => {
+test("findCustomersAcrossProjects keeps every project confirmed by the safe lookup", async () => {
   process.env.REVENUECAT_PROJECTS_JSON = JSON.stringify([
     {
       projectId: "rifa-facil",
@@ -499,10 +634,10 @@ test("findCustomersAcrossProjects hides empty matches when there is real data", 
   });
 
   assert.equal(result.searchedProjectCount, 2);
-  assert.equal(result.totalMatches, 1);
+  assert.equal(result.totalMatches, 2);
   assert.equal(result.matches[0].customer.project.projectId, "rifa-digital");
   assert.equal(result.matches[0].customer.currentProduct, "pro_monthly");
-  assert.equal(result.matches[0].customer.isEmpty, false);
+  assert.equal(result.matches[1].customer.isEmpty, true);
 });
 
 test("findCustomersAcrossProjects keeps subscriber with non-subscription purchase", async () => {
@@ -591,6 +726,8 @@ test("getRevenueCatProjectsConfig parses multiple configured projects", () => {
       projectId: "ios-main",
       label: "iOS Main",
       secretKey: "secret_1",
+      revenueCatProjectId: "proj_ios",
+      v2SecretKey: "v2_secret_1",
       entitlementId: "premium",
     },
     {
@@ -648,6 +785,8 @@ test("grantRevenueCatPromotionalAccess sends end_time_ms to promotional endpoint
       projectId: "ios-main",
       label: "iOS Main",
       secretKey: "secret_1",
+      revenueCatProjectId: "proj_ios",
+      v2SecretKey: "v2_secret_1",
       entitlementId: "premium",
     },
   ]);
@@ -661,6 +800,14 @@ test("grantRevenueCatPromotionalAccess sends end_time_ms to promotional endpoint
       expiresAt: null,
     },
     async (url, options) => {
+      if (url.includes("/v2/")) {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify({ items: [{ id: "cust_123" }] }),
+        };
+      }
+
       request = { url, options };
       return {
         ok: true,
@@ -686,12 +833,52 @@ test("grantRevenueCatPromotionalAccess sends end_time_ms to promotional endpoint
   assert.equal(result.entitlementId, "premium");
 });
 
+test("grantRevenueCatPromotionalAccess does not post when V2 cannot find the customer", async () => {
+  process.env.REVENUECAT_PROJECTS_JSON = JSON.stringify([
+    {
+      projectId: "ios-main",
+      label: "iOS Main",
+      secretKey: "secret_1",
+      revenueCatProjectId: "proj_ios",
+      v2SecretKey: "v2_secret_1",
+      entitlementId: "premium",
+    },
+  ]);
+
+  let v1CallCount = 0;
+  await assert.rejects(
+    () =>
+      grantRevenueCatPromotionalAccess(
+        "ios-main",
+        "missing_user",
+        { grantKind: "weekly", expiresAt: null },
+        async (url) => {
+          if (url.includes("/v2/")) {
+            return {
+              ok: true,
+              status: 200,
+              text: async () => JSON.stringify({ items: [] }),
+            };
+          }
+
+          v1CallCount += 1;
+          throw new Error("V1 não deveria ser chamado");
+        },
+      ),
+    (error) => error.status === 404,
+  );
+
+  assert.equal(v1CallCount, 0);
+});
+
 test("revokeRevenueCatPromotionalAccess posts to revoke_promotionals endpoint with empty body", async () => {
   process.env.REVENUECAT_PROJECTS_JSON = JSON.stringify([
     {
       projectId: "ios-main",
       label: "iOS Main",
       secretKey: "secret_1",
+      revenueCatProjectId: "proj_ios",
+      v2SecretKey: "v2_secret_1",
       entitlementId: "premium",
     },
   ]);
@@ -701,6 +888,14 @@ test("revokeRevenueCatPromotionalAccess posts to revoke_promotionals endpoint wi
     "ios-main",
     "user_123",
     async (url, options) => {
+      if (url.includes("/v2/")) {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify({ items: [{ id: "cust_123" }] }),
+        };
+      }
+
       request = { url, options };
       return {
         ok: true,
@@ -731,6 +926,8 @@ test("listRevenueCatProjects hides secret keys", () => {
     "ios-main": {
       label: "iOS Main",
       secretKey: "secret_1",
+      revenueCatProjectId: "proj_ios",
+      v2SecretKey: "v2_secret_1",
       entitlementId: "premium",
     },
   });
@@ -743,6 +940,7 @@ test("listRevenueCatProjects hides secret keys", () => {
       projectId: "ios-main",
       label: "iOS Main",
       entitlementId: "premium",
+      lookupConfigured: true,
     },
   ]);
 });

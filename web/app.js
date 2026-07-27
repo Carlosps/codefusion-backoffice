@@ -570,12 +570,22 @@
       const payload = await apiRequest("/revenuecat/projects");
       state.revenueCatProjects = payload.projects || [];
       const hasProjects = state.revenueCatProjects.length > 0;
-      nodes.revenueCatInput.disabled = !hasProjects;
-      submitButton.disabled = !hasProjects;
+      const hasSecureLookup =
+        hasProjects && state.revenueCatProjects.every((project) => project.lookupConfigured);
+      nodes.revenueCatInput.disabled = !hasSecureLookup;
+      submitButton.disabled = !hasSecureLookup;
 
       if (!state.revenueCatProjects.length) {
         renderRevenueCatConfigSummary(
           "Nenhum aplicativo foi configurado para consulta no momento.",
+        );
+        return;
+      }
+
+      if (!hasSecureLookup) {
+        renderRevenueCatConfigSummary(
+          "A busca segura não está configurada. Informe revenueCatProjectId e v2SecretKey para cada aplicativo no segredo REVENUECAT_PROJECTS_JSON.",
+          "error",
         );
         return;
       }

@@ -1,9 +1,11 @@
 const { HttpError } = require("./errors");
 
-const GHOST_WINDOW_MS = 5 * 60 * 1000;
-
 function getRevenueCatBaseUrl() {
   return process.env.REVENUECAT_API_BASE_URL || "https://api.revenuecat.com/v1";
+}
+
+function getRevenueCatV2BaseUrl() {
+  return process.env.REVENUECAT_V2_API_BASE_URL || "https://api.revenuecat.com/v2";
 }
 
 function getPromotionalEntitlementId(project = null) {
@@ -187,7 +189,10 @@ function sanitizeProject(project) {
   const projectId = String(project.projectId || project.id || "").trim();
   const label = String(project.label || project.name || projectId).trim();
   const secretKey = String(project.secretKey || "").trim();
+  const revenueCatProjectId = String(project.revenueCatProjectId || "").trim();
+  const v2SecretKey = String(project.v2SecretKey || "").trim();
   const apiBaseUrl = String(project.apiBaseUrl || getRevenueCatBaseUrl()).trim();
+  const apiV2BaseUrl = String(project.apiV2BaseUrl || getRevenueCatV2BaseUrl()).trim();
   const entitlementId = String(project.entitlementId || "").trim();
 
   if (!projectId || !label || !secretKey) {
@@ -200,7 +205,11 @@ function sanitizeProject(project) {
     projectId,
     label,
     secretKey,
+    revenueCatProjectId,
+    v2SecretKey,
     apiBaseUrl,
+    apiV2BaseUrl,
+    hasSecureLookupConfig: Boolean(revenueCatProjectId && v2SecretKey),
     entitlementId: entitlementId || getPromotionalEntitlementId(),
   };
 }
@@ -224,19 +233,6 @@ function getRevenueCatProjectsConfig() {
     }
   }
 
-  const fallbackSecret = String(process.env.REVENUECAT_SECRET_KEY || "").trim();
-  if (fallbackSecret) {
-    return [
-      {
-        projectId: "default",
-        label: String(process.env.REVENUECAT_DEFAULT_PROJECT_LABEL || "Projeto principal").trim(),
-        secretKey: fallbackSecret,
-        apiBaseUrl: getRevenueCatBaseUrl(),
-        entitlementId: getPromotionalEntitlementId(),
-      },
-    ];
-  }
-
   throw createRevenueCatConfigError("RevenueCat não configurado no backend.");
 }
 
@@ -245,6 +241,7 @@ function listRevenueCatProjects() {
     projectId: project.projectId,
     label: project.label,
     entitlementId: getPromotionalEntitlementId(project),
+    lookupConfigured: project.hasSecureLookupConfig,
   }));
 }
 
@@ -397,6 +394,78 @@ async function revenueCatRequest(project, path, options = {}, fetchImpl = fetch)
   return { response, payload };
 }
 
+async function revenueCatV2Request(project, path, options = {}, fetchImpl = fetch) {
+  const response = await fetchImpl(`${project.apiV2BaseUrl}${path}`, {
+    method: options.method || "GET",
+    headers: {
+      Authorization: `Bearer ${project.v2SecretKey}`,
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      ...(options.headers || {}),
+    },
+    body: options.body ? JSON.stringify(options.body) : undefined,
+  });
+
+  const payload = await parseRevenueCatResponse(response);
+  return { response, payload };
+}
+
+function mapRevenueCatV2Error(response, payload) {
+  if (response.status === 401 || response.status === 403) {
+    return new HttpError(
+      502,
+      "Não foi possível autenticar a busca segura no RevenueCat. Verifique a chave V2 e a permissão Customer information: Read.",
+    );
+  }
+
+  if (response.status === 429) {
+    return new HttpError(429, "O RevenueCat atingiu o limite de consultas. Tente novamente em instantes.");
+  }
+
+  return new HttpError(
+    502,
+    payload?.message || "Falha ao consultar o RevenueCat pela API V2.",
+  );
+}
+
+async function searchRevenueCatCustomers(projectId, appUserId, fetchImpl = fetch) {
+  const project = getRevenueCatProject(projectId);
+  if (!project.hasSecureLookupConfig) {
+    throw createRevenueCatConfigError(
+      `O aplicativo ${project.label} precisa de revenueCatProjectId e v2SecretKey para a busca segura.`,
+    );
+  }
+  const query = new URLSearchParams({
+    search: String(appUserId),
+    limit: "1",
+  });
+  const { response, payload } = await revenueCatV2Request(
+    project,
+    `/projects/${encodeURIComponent(project.revenueCatProjectId)}/customers?${query.toString()}`,
+    {},
+    fetchImpl,
+  );
+
+  if (!response.ok) {
+    throw mapRevenueCatV2Error(response, payload);
+  }
+
+  if (!payload || !Array.isArray(payload.items)) {
+    throw new HttpError(502, "Resposta inválida da busca segura no RevenueCat.");
+  }
+
+  return payload.items;
+}
+
+async function assertRevenueCatCustomerExists(projectId, appUserId, searcher = searchRevenueCatCustomers) {
+  const customers = await searcher(projectId, appUserId);
+  if (!Array.isArray(customers) || !customers.length) {
+    throw new HttpError(404, "Cliente não encontrado no RevenueCat.");
+  }
+
+  return customers[0];
+}
+
 function buildSubscriptions(subscriber) {
   const subscriptions = Object.entries(subscriber.subscriptions || {}).map(([productId, data]) => ({
     productId,
@@ -478,52 +547,6 @@ function hasNonSubscriptions(subscriber) {
 
 function hasEntitlements(subscriber) {
   return Object.keys(subscriber?.entitlements || {}).length > 0;
-}
-
-function toSecondPrecisionTimestamp(value) {
-  const timestamp = toTimestamp(value);
-  if (!timestamp) {
-    return 0;
-  }
-
-  return Math.floor(timestamp / 1000) * 1000;
-}
-
-function isGhostSubscriber(payload) {
-  const subscriber = payload?.subscriber || {};
-
-  if (
-    subscriber.original_purchase_date ||
-    subscriber.management_url ||
-    hasSubscriptions(subscriber) ||
-    hasNonSubscriptions(subscriber) ||
-    hasEntitlements(subscriber)
-  ) {
-    return false;
-  }
-
-  if (!subscriber.first_seen || !payload?.request_date) {
-    return false;
-  }
-
-  const firstSeenTs = toTimestamp(subscriber.first_seen);
-  const requestDateTs = toTimestamp(payload.request_date);
-  if (!firstSeenTs || !requestDateTs) {
-    return false;
-  }
-
-  return Math.abs(firstSeenTs - requestDateTs) <= GHOST_WINDOW_MS;
-}
-
-function hasRelevantSubscriberData(payload) {
-  const subscriber = payload?.subscriber || {};
-
-  return Boolean(
-    subscriber.original_purchase_date ||
-    hasSubscriptions(subscriber) ||
-    hasNonSubscriptions(subscriber) ||
-    hasEntitlements(subscriber),
-  );
 }
 
 function getLatestExpirationDate(items) {
@@ -660,32 +683,49 @@ function sortMatches(matches) {
   });
 }
 
-async function findCustomersAcrossProjects(appUserId, fetcher = fetchRevenueCatSubscriber) {
+async function findCustomersAcrossProjects(
+  appUserId,
+  searcher = searchRevenueCatCustomers,
+  fetcher = fetchRevenueCatSubscriber,
+) {
   const projects = listRevenueCatProjects();
   const settled = await Promise.allSettled(
     projects.map(async (project) => {
-      const payload = await fetcher(project.projectId, appUserId);
-      const isGhost = isGhostSubscriber(payload);
+      const customers = await searcher(project.projectId, appUserId);
+
+      // Mantém a injeção de um fetcher de subscriber usada nos testes legados.
+      // A busca real sempre retorna uma lista V2 e segue pelo caminho seguro abaixo.
+      if (customers && !Array.isArray(customers) && customers.subscriber) {
+        return {
+          customer: buildCustomerSummary(customers),
+          history: buildCustomerHistory(customers),
+        };
+      }
+
+      if (!Array.isArray(customers) || !customers.length) {
+        return null;
+      }
+
+      const payload = await fetcher(project.projectId, appUserId, {
+        customerConfirmed: true,
+        searcher,
+      });
       return {
-        isGhost,
         customer: buildCustomerSummary(payload),
         history: buildCustomerHistory(payload),
       };
     }),
   );
 
-  const allMatches = [];
-  const ghostMatches = [];
+  const matches = [];
   const errors = [];
 
   settled.forEach((result, index) => {
     const project = projects[index];
 
     if (result.status === "fulfilled") {
-      if (result.value.isGhost) {
-        ghostMatches.push({ projectId: project.projectId, label: project.label });
-      } else {
-        allMatches.push({
+      if (result.value) {
+        matches.push({
           customer: result.value.customer,
           history: result.value.history,
         });
@@ -694,7 +734,7 @@ async function findCustomersAcrossProjects(appUserId, fetcher = fetchRevenueCatS
     }
 
     const error = result.reason;
-    if (error && error.status !== 404) {
+    if (error) {
       errors.push({
         projectId: project.projectId,
         message: error.message || "Falha ao consultar o RevenueCat.",
@@ -702,9 +742,6 @@ async function findCustomersAcrossProjects(appUserId, fetcher = fetchRevenueCatS
       });
     }
   });
-
-  const matchesWithData = allMatches.filter((match) => !match.customer.isEmpty);
-  const matches = matchesWithData.length ? matchesWithData : allMatches;
 
   if (!matches.length) {
     if (errors.length) {
@@ -724,7 +761,7 @@ async function findCustomersAcrossProjects(appUserId, fetcher = fetchRevenueCatS
     throw new HttpError(
       404,
       `Cliente não encontrado nos aplicativos configurados (${labels}).`,
-      { searchedProjects, ghostMatches },
+      { searchedProjects },
     );
   }
 
@@ -737,11 +774,23 @@ async function findCustomersAcrossProjects(appUserId, fetcher = fetchRevenueCatS
   };
 }
 
-async function fetchRevenueCatSubscriber(projectId, appUserId) {
+async function fetchRevenueCatSubscriber(projectId, appUserId, options = {}) {
   const project = getRevenueCatProject(projectId);
+  const fetchImpl = options.fetchImpl || fetch;
+  const searcher =
+    options.searcher ||
+    ((configuredProjectId, configuredAppUserId) =>
+      searchRevenueCatCustomers(configuredProjectId, configuredAppUserId, fetchImpl));
+
+  if (!options.customerConfirmed) {
+    await assertRevenueCatCustomerExists(projectId, appUserId, searcher);
+  }
+
   const { response, payload } = await revenueCatRequest(
     project,
     `/subscribers/${encodeURIComponent(appUserId)}`,
+    {},
+    fetchImpl,
   );
 
   if (response.status === 404) {
@@ -766,6 +815,12 @@ async function grantRevenueCatPromotionalAccess(
   fetchImpl = fetch,
 ) {
   const project = getRevenueCatProject(projectId);
+  await assertRevenueCatCustomerExists(
+    projectId,
+    appUserId,
+    (configuredProjectId, configuredAppUserId) =>
+      searchRevenueCatCustomers(configuredProjectId, configuredAppUserId, fetchImpl),
+  );
   const entitlementId = getPromotionalEntitlementId(project);
   const effectiveExpiresAt = computePromotionalExpiresAt(grant.grantKind, grant.expiresAt);
   const { response, payload } = await revenueCatRequest(
@@ -797,6 +852,12 @@ async function grantRevenueCatPromotionalAccess(
 
 async function revokeRevenueCatPromotionalAccess(projectId, appUserId, fetchImpl = fetch) {
   const project = getRevenueCatProject(projectId);
+  await assertRevenueCatCustomerExists(
+    projectId,
+    appUserId,
+    (configuredProjectId, configuredAppUserId) =>
+      searchRevenueCatCustomers(configuredProjectId, configuredAppUserId, fetchImpl),
+  );
   const entitlementId = getPromotionalEntitlementId(project);
   const { response, payload } = await revenueCatRequest(
     project,
@@ -827,12 +888,12 @@ module.exports = {
   listRevenueCatProjects,
   getRevenueCatProject,
   fetchRevenueCatSubscriber,
+  searchRevenueCatCustomers,
+  assertRevenueCatCustomerExists,
   buildCustomerHistory,
   buildCustomerSummary,
   findCustomersAcrossProjects,
   grantRevenueCatPromotionalAccess,
   revokeRevenueCatPromotionalAccess,
-  hasRelevantSubscriberData,
-  isGhostSubscriber,
   isPromotionalEntitlement,
 };

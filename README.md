@@ -4,7 +4,7 @@ Painel interno em HTML/CSS/JS com Firebase Hosting + Firebase Functions para dar
 
 - login via Google com Firebase Auth no frontend
 - allowlist de acesso via `SUPPORT_ALLOWED_EMAILS` e/ou `SUPPORT_ALLOWED_DOMAIN`
-- busca de cliente no RevenueCat por `projectId` + `app_user_id`
+- busca segura de cliente no RevenueCat por `projectId` + `app_user_id`
 - consulta de assinatura, entitlements e histórico derivado de compras
 - ações administrativas controladas no Firestore
 - trilha simples de auditoria
@@ -56,7 +56,7 @@ Em `functions/.env`, preencha pelo menos:
 3. Configure os secrets locais do Emulator em `functions/.secret.local` quando rodar localmente:
 
 ```dotenv
-REVENUECAT_PROJECTS_JSON=[{"projectId":"rifa-facil","label":"Rifa Fácil","secretKey":"sk_xxx","entitlementId":"pro"},{"projectId":"rifa-digital","label":"Rifa Digital","secretKey":"sk_xxx","entitlementId":"pro"},{"projectId":"controle-estoque","label":"Controle de Estoque","secretKey":"sk_xxx","entitlementId":"pro"},{"projectId":"gerador-contratos","label":"Gerador de Contratos","secretKey":"sk_xxx","entitlementId":"pro"}]
+REVENUECAT_PROJECTS_JSON=[{"projectId":"rifa-facil","label":"Rifa Fácil","secretKey":"sk_xxx","revenueCatProjectId":"proj_xxx","v2SecretKey":"sk_xxx","entitlementId":"pro"},{"projectId":"rifa-digital","label":"Rifa Digital","secretKey":"sk_xxx","revenueCatProjectId":"proj_xxx","v2SecretKey":"sk_xxx","entitlementId":"pro"},{"projectId":"controle-estoque","label":"Controle de Estoque","secretKey":"sk_xxx","revenueCatProjectId":"proj_xxx","v2SecretKey":"sk_xxx","entitlementId":"pro"},{"projectId":"gerador-contratos","label":"Gerador de Contratos","secretKey":"sk_xxx","revenueCatProjectId":"proj_xxx","v2SecretKey":"sk_xxx","entitlementId":"pro"}]
 TARGET_FIRESTORE_SERVICE_ACCOUNT_JSON=
 ```
 
@@ -64,10 +64,12 @@ O Firebase Functions Emulator tenta ler esses valores do Secret Manager porque a
 `REVENUECAT_PROJECTS_JSON` e `TARGET_FIRESTORE_SERVICE_ACCOUNT_JSON` como `secrets`. Sem acesso ao
 Secret Manager no projeto, `functions/.secret.local` é o override local esperado.
 
-O módulo RevenueCat do painel busca a lista de aplicativos no backend. O nome exibido vem de
-`label`, o identificador interno usado pela rota vem de `projectId`, o entitlement promocional
-vem de `entitlementId` e a credencial privada usada na consulta vem de `secretKey`. O frontend
-recebe apenas metadados públicos (`projectId`, `label` e `entitlementId`), nunca a secret key.
+O módulo RevenueCat primeiro usa a API V2 para localizar o cliente sem criá-lo e só então usa a
+API V1 para carregar o histórico e realizar ações manuais no projeto confirmado. O nome exibido
+vem de `label`, o identificador interno usado pela rota vem de `projectId`, o ID real do projeto
+RevenueCat vem de `revenueCatProjectId`, e o entitlement promocional vem de `entitlementId`.
+`secretKey` é a chave V1, enquanto `v2SecretKey` deve ser uma chave V2 com apenas a permissão
+**Customer information: Read**. O frontend recebe apenas metadados públicos, nunca as chaves.
 
 Se as Functions do `code-fusion-backoffice` não tiverem permissão IAM nos projetos de rifa (`rifa-73864` e `rifa-digital-f21e7`), configure também:
 
@@ -82,24 +84,32 @@ Exemplo de `REVENUECAT_PROJECTS_JSON`:
     "projectId": "rifa-facil",
     "label": "Rifa Fácil",
     "secretKey": "sk_xxx",
+    "revenueCatProjectId": "proj_xxx",
+    "v2SecretKey": "sk_xxx",
     "entitlementId": "pro"
   },
   {
     "projectId": "rifa-digital",
     "label": "Rifa Digital",
     "secretKey": "sk_xxx",
+    "revenueCatProjectId": "proj_xxx",
+    "v2SecretKey": "sk_xxx",
     "entitlementId": "pro"
   },
   {
     "projectId": "controle-estoque",
     "label": "Controle de Estoque",
     "secretKey": "sk_xxx",
+    "revenueCatProjectId": "proj_xxx",
+    "v2SecretKey": "sk_xxx",
     "entitlementId": "pro"
   },
   {
     "projectId": "gerador-contratos",
     "label": "Gerador de Contratos",
     "secretKey": "sk_xxx",
+    "revenueCatProjectId": "proj_xxx",
+    "v2SecretKey": "sk_xxx",
     "entitlementId": "pro"
   }
 ]
@@ -112,11 +122,15 @@ Esse JSON tambem pode ser informado como objeto, caso voce prefira usar o `proje
   "controle-estoque": {
     "label": "Controle de Estoque",
     "secretKey": "sk_xxx",
+    "revenueCatProjectId": "proj_xxx",
+    "v2SecretKey": "sk_xxx",
     "entitlementId": "pro"
   },
   "gerador-contratos": {
     "label": "Gerador de Contratos",
     "secretKey": "sk_xxx",
+    "revenueCatProjectId": "proj_xxx",
+    "v2SecretKey": "sk_xxx",
     "entitlementId": "pro"
   }
 }
@@ -279,8 +293,8 @@ nesse alvo.
 - O módulo Firestore assume, por padrão, uma coleção `users` com campo numérico `credits`. Ajuste isso antes de ir para produção.
 - Se `TARGET_FIRESTORE_SERVICE_ACCOUNT_JSON` não for usado, a conta de serviço das Functions do `code-fusion-backoffice` precisa ter permissão nos projetos `rifa-73864` e `rifa-digital-f21e7`.
 - O histórico do RevenueCat é derivado dos dados retornados pelo endpoint de subscriber, então ele mostra os eventos principais disponíveis nessa resposta.
-- A busca multi-projeto do RevenueCat só mostra aplicativos com dados úteis do cliente, como assinatura, compra única, entitlement/acesso ou data original de compra; `first_seen` sozinho não conta como cliente encontrado.
+- A busca multi-projeto usa a API V2, que não cria clientes. Um cliente recém-criado sem compras também aparece no aplicativo em que ele realmente existe.
 - O entitlement promocional manual pode vir de `entitlementId` em cada projeto; se omitido, o backend usa `REVENUECAT_PROMOTIONAL_PRO_ENTITLEMENT` e depois `pro`.
 - O backoffice pode conceder acesso manual direto no RevenueCat para clientes já encontrados na busca, sempre por projeto, com atalhos semanal, mensal, anual ou data final específica.
-- Se o dropdown do RevenueCat aparecer sem opções, revise `REVENUECAT_PROJECTS_JSON` em `functions/.secret.local` no ambiente local; a interface agora exibe um aviso direto quando essa configuração estiver ausente ou inválida.
+- Se a consulta RevenueCat estiver desabilitada, revise `revenueCatProjectId` e `v2SecretKey` de cada item de `REVENUECAT_PROJECTS_JSON`; a interface exibe um aviso até que todos os apps tenham a busca segura configurada.
 - O template em `docs/firestore-admin-mapping.md` deve ser preenchido antes de liberar o módulo de escrita para o time.
