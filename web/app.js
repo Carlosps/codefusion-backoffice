@@ -44,6 +44,13 @@
   const RIFA_EDITABLE_FIELDS = [
     { field: "name", label: "Nome da rifa", type: "text" },
     { field: "description", label: "Descrição", component: "textarea", wide: true },
+    {
+      field: "raffleDate",
+      label: "Data do sorteio",
+      type: "date",
+      getValue: getRifaRaffleDateInputValue,
+      getUpdateField: getRifaRaffleDateStorageField,
+    },
     { field: "pixKey", label: "Chave Pix", type: "text", autocomplete: "off" },
     {
       field: "pixType",
@@ -130,6 +137,20 @@
     return el && typeof el.closest === "function" ? el.closest(selector) : null;
   }
 
+  function parseLocalDateOnly(value) {
+    const match = String(value || "").trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) {
+      return null;
+    }
+
+    const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+    return date.getFullYear() === Number(match[1]) &&
+      date.getMonth() === Number(match[2]) - 1 &&
+      date.getDate() === Number(match[3])
+      ? date
+      : null;
+  }
+
   function coerceDate(value) {
     if (!value) {
       return null;
@@ -152,6 +173,10 @@
       }
       if (/^\d{10,13}$/.test(trimmed)) {
         return coerceDate(Number(trimmed));
+      }
+      const localDate = parseLocalDateOnly(trimmed);
+      if (localDate) {
+        return localDate;
       }
       const date = new Date(trimmed);
       return Number.isNaN(date.getTime()) ? null : date;
@@ -250,6 +275,22 @@
       String(date.getMonth() + 1).padStart(2, "0"),
       String(date.getDate()).padStart(2, "0"),
     ].join("-");
+  }
+
+  function getRifaRaffleDateInputValue(data) {
+    const value = data?.raffle_date ?? data?.raffleDate;
+    const date = coerceDate(value);
+    return date ? getLocalDateInputValue(date) : "";
+  }
+
+  function getRifaRaffleDateStorageField(data) {
+    if (Object.prototype.hasOwnProperty.call(data || {}, "raffle_date")) {
+      return "raffle_date";
+    }
+    if (Object.prototype.hasOwnProperty.call(data || {}, "raffleDate")) {
+      return "raffleDate";
+    }
+    return "raffle_date";
   }
 
   function toLocalEndOfDayISOString(value) {
@@ -1204,7 +1245,7 @@
     const data = match?.data ?? {};
     const appKey = match?.appKey || "";
     const fieldsHtml = RIFA_EDITABLE_FIELDS.map((config) => {
-      const value = data?.[config.field] ?? "";
+      const value = config.getValue ? config.getValue(data) : data?.[config.field] ?? "";
       const fieldClass = `field grow ${config.wide ? "field-wide" : ""}`;
       const commonAttrs = `
             name="${escapeHtml(config.field)}"
@@ -1258,7 +1299,7 @@
       <form class="rifa-edit-form inline-edit-panel" data-rifa-edit-form="1" data-app-key="${escapeHtml(appKey)}">
         <div>
           <h3>Editar dados da rifa</h3>
-          <p>Atualize nome, descrição, Pix e e-mail operacional no documento da rifa.</p>
+          <p>Atualize nome, descrição, data do sorteio, Pix e e-mail operacional no documento da rifa.</p>
         </div>
         <div class="inline-edit-fields">
           ${fieldsHtml}
@@ -2761,7 +2802,9 @@
           continue;
         }
         const value = input.value.trim();
-        let currentValue = String(match.data?.[config.field] ?? "").trim();
+        let currentValue = config.getValue
+          ? String(config.getValue(match.data)).trim()
+          : String(match.data?.[config.field] ?? "").trim();
         if (
           config.field === "pixType" &&
           !PIX_TYPE_OPTIONS.some((option) => option.value === currentValue)
@@ -2769,7 +2812,10 @@
           currentValue = "";
         }
         if (value !== currentValue) {
-          updates[config.field] = value;
+          const updateField = config.getUpdateField
+            ? config.getUpdateField(match.data)
+            : config.field;
+          updates[updateField] = value;
         }
       }
 

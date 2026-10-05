@@ -6,8 +6,11 @@ const DEFAULT_ALLOWED_RIFA_UPDATE_FIELDS = [
   "description",
   "pixKey",
   "pixType",
+  "raffle_date",
+  "raffleDate",
 ];
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const DATE_ONLY_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 const PIX_TYPES = [0, 1, 2, 3, 4, 5];
 
 function parseCsv(value) {
@@ -101,6 +104,30 @@ function validatePixKey(value) {
   return normalizeText(value, "a chave Pix", { maxLength: 140 });
 }
 
+function validateRaffleDate(value) {
+  if (typeof value !== "string") {
+    throw new HttpError(400, "Informe a data do sorteio.");
+  }
+
+  const normalized = value.trim();
+  const match = normalized.match(DATE_ONLY_RE);
+  if (!match) {
+    throw new HttpError(400, "Informe uma data de sorteio válida.");
+  }
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const isLeapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const daysInMonth = [31, isLeapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+  if (month < 1 || month > 12 || day < 1 || day > daysInMonth[month - 1]) {
+    throw new HttpError(400, "Informe uma data de sorteio válida.");
+  }
+
+  return normalized;
+}
+
 function assertPixKeyMatchesType(pixKey, pixType) {
   const inferred = inferPixType(pixKey);
   if (pixType !== 0 && pixType !== inferred) {
@@ -133,6 +160,9 @@ function validateRifaFieldValue(field, value) {
   }
   if (field === "pixType") {
     return validatePixType(value);
+  }
+  if (field === "raffle_date" || field === "raffleDate") {
+    return validateRaffleDate(value);
   }
 
   return value;
@@ -172,5 +202,6 @@ module.exports = {
   inferPixType,
   getAllowedRifaUpdateFields,
   validateRifaEmail,
+  validateRaffleDate,
   validateRifaUpdatePayload,
 };

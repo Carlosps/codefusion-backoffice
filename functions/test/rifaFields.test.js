@@ -82,6 +82,28 @@ test("validateRifaUpdatePayload accepts empty description for clearing", () => {
   });
 });
 
+test("validateRifaUpdatePayload accepts and normalizes the raffle date", () => {
+  delete process.env.RIFA_ALLOWED_UPDATE_FIELDS;
+
+  assert.deepEqual(validateRifaUpdatePayload({ raffle_date: " 2026-08-19 " }), {
+    raffle_date: "2026-08-19",
+  });
+  assert.deepEqual(validateRifaUpdatePayload({ raffleDate: "2028-02-29" }), {
+    raffleDate: "2028-02-29",
+  });
+});
+
+test("validateRifaUpdatePayload rejects invalid raffle dates", () => {
+  delete process.env.RIFA_ALLOWED_UPDATE_FIELDS;
+
+  for (const value of ["", "19/08/2026", "2026-02-29", "2026-13-01", "2026-04-31"]) {
+    assert.throws(
+      () => validateRifaUpdatePayload({ raffle_date: value }),
+      /data do sorteio|data de sorteio válida/,
+    );
+  }
+});
+
 test("inferPixType identifies supported Pix key types", () => {
   assert.equal(inferPixType("000.000.000-00"), 1);
   assert.equal(inferPixType("11.111.111/1111-11"), 2);
