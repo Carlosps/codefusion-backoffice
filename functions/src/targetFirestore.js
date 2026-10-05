@@ -299,6 +299,13 @@ function getRifaLookupFirestoreDb(target) {
   return getFirestoreDbFromApp(app, config.disableEmulator);
 }
 
+function getContractFirestoreDb() {
+  return getRifaLookupFirestoreDb({
+    appKey: "gerador-contratos",
+    projectId: String(process.env.CONTRACT_FIRESTORE_PROJECT_ID || "gerador-de-contratos-69687").trim(),
+  });
+}
+
 /**
  * Fonte da verdade no Firestore (contrato compartilhado com o app de rifas):
  * - Estado de liberação: um booleano no campo configurável (padrão `unlocked`).
@@ -347,6 +354,7 @@ function getRifaLockWriteConfig() {
 }
 
 module.exports = {
+  getContractFirestoreDb,
   getTargetFirestoreConfig,
   getTargetFirestoreDb,
   getRifaLookupConfig,

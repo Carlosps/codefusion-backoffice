@@ -1,6 +1,6 @@
 (function bootstrap() {
   /** Incremente ao mudar o front; confirme no console se o deploy chegou ao browser. */
-  const BACKOFFICE_BUILD_ID = "2026-07-01-rifa-profile-pix";
+  const BACKOFFICE_BUILD_ID = "2026-10-05-contract-pro-credits";
   console.info("[backoffice] app.js carregado", BACKOFFICE_BUILD_ID, {
     href: typeof location !== "undefined" ? location.href : "",
   });
@@ -2169,6 +2169,22 @@
             data-app-user-id="${escapeHtml(appUserId)}"
           >
             <fieldset class="manual-access-fieldset">
+              ${projectId === "gerador-contratos" ? `
+                <div class="contract-access-options">
+                  <label class="field">
+                    <span>Plano de contratos</span>
+                    <select name="contractPlanType">
+                      <option value="starter">Starter — sugestão: 3 créditos</option>
+                      <option value="plus" selected>Plus — sugestão: 10 créditos</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>Créditos a adicionar</span>
+                    <input type="number" name="contractCredits" min="0" max="10000" step="1" value="10" required />
+                  </label>
+                </div>
+                <p class="contract-access-note">Libera o Pro, ativa o plano até a data escolhida e soma os créditos ao saldo atual. Use o UID do Firebase do usuário. Os créditos são concedidos uma vez por liberação, sem renovação automática.</p>
+              ` : ""}
               <div class="manual-access-actions">
                 <button class="button button-secondary" type="button" data-grant-kind="weekly">
                   Conceder semanal
@@ -2486,6 +2502,18 @@
   function buildPromotionalAccessPayload(form, grantKind) {
     const payload = { grantKind };
 
+    if (form.dataset.projectId === "gerador-contratos") {
+      payload.planType = form.querySelector('[name="contractPlanType"]').value;
+      const input = form.querySelector('[name="contractCredits"]');
+      const credits = input.value.trim() === "" ? NaN : Number(input.value);
+      if (!Number.isSafeInteger(credits) || credits < 0 || credits > 10000) {
+        throw new Error("Informe de 0 a 10000 créditos inteiros para adicionar.");
+      }
+      payload.credits = credits;
+      form.dataset.requestId ||= crypto.randomUUID();
+      payload.requestId = form.dataset.requestId;
+    }
+
     if (grantKind === "until") {
       const rawDate = form.querySelector('[name="customExpirationDate"]')?.value;
       if (!rawDate) {
@@ -2512,7 +2540,7 @@
       setManualAccessFormBusy(form, true);
       setManualAccessFormFeedback(form, "Aplicando acesso manual...", null);
 
-      await apiRequest(
+      const response = await apiRequest(
         `/revenuecat/projects/${encodeURIComponent(projectId)}/customer/${encodeURIComponent(appUserId)}/promotional-access`,
         {
           method: "POST",
@@ -2520,7 +2548,7 @@
         },
       );
 
-      await refreshRevenueCatAfterManualAccess(appUserId, "Acesso manual atualizado com sucesso.");
+      await refreshRevenueCatAfterManualAccess(appUserId, response.result?.message || "Acesso manual atualizado com sucesso.");
     } catch (error) {
       setManualAccessFormFeedback(form, error.message, "error");
     } finally {
@@ -3060,6 +3088,13 @@
         await loadRevenueCat(appUserId);
       } catch (error) {
         setFeedback(nodes.revenueCatFeedback, error.message, "error");
+      }
+    });
+
+    nodes.revenueCatResults.addEventListener("change", (event) => {
+      if (event.target.name === "contractPlanType") {
+        const form = event.target.closest(".manual-access-form");
+        form.querySelector('[name="contractCredits"]').value = event.target.value === "plus" ? "10" : "3";
       }
     });
 

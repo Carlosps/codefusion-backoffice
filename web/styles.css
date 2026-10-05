@@ -1684,6 +1684,18 @@ select:disabled {
   gap: 6px;
 }
 
+.contract-access-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.contract-access-note {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 0.82rem;
+}
+
 .manual-access-custom {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

@@ -6,6 +6,7 @@ const logger = require("firebase-functions/logger");
 const { logAuditEvent, fetchAuditLogs } = require("./src/audit");
 const { requireUser } = require("./src/auth");
 const { HttpError } = require("./src/errors");
+const { CONTRACT_PROJECT_ID, validateContractAccess, grantContractAccess } = require("./src/contractAccess");
 const {
   getFirestoreAdminConfig,
   sanitizeAuditPayload,
@@ -32,6 +33,7 @@ const {
 } = require("./src/revenuecat");
 const {
   getTargetFirestoreDb,
+  getContractFirestoreDb,
   getTargetFirestoreConfig,
   getRifaLookupTargets,
   resolveRifaLookupTarget,
@@ -739,11 +741,18 @@ async function grantPromotionalAccess(req, res, projectId, appUserId) {
   let entitlementId = getPromotionalEntitlementId();
   const body = await readJsonBody(req);
   const grant = validatePromotionalAccessPayload(body);
+  const contractOptions = projectId === CONTRACT_PROJECT_ID
+    ? validateContractAccess(body, appUserId) : null;
 
   try {
     const subscriberPayload = await fetchRevenueCatSubscriber(projectId, appUserId);
     entitlementId = getPromotionalEntitlementId(subscriberPayload.project);
-    const result = await grantRevenueCatPromotionalAccess(projectId, appUserId, grant);
+    const result = contractOptions
+      ? await grantContractAccess({
+        db: getContractFirestoreDb(), appUserId, grant, options: contractOptions, actor,
+        grantAccess: (effectiveGrant) => grantRevenueCatPromotionalAccess(projectId, appUserId, effectiveGrant),
+      })
+      : await grantRevenueCatPromotionalAccess(projectId, appUserId, grant);
 
     await logAuditEvent({
       module: "revenuecat",
@@ -755,18 +764,22 @@ async function grantPromotionalAccess(req, res, projectId, appUserId) {
         entitlementId,
         grantKind: grant.grantKind,
         expiresAt: result.expiresAt,
+        ...(contractOptions ? { contractAccess: result } : {}),
       },
     });
 
     sendJson(res, 200, {
       ok: true,
       result: {
-        message: "Acesso manual concedido com sucesso.",
+        message: contractOptions
+          ? `Pro e plano ${result.planType === "plus" ? "Plus" : "Starter"} liberados. ${result.creditsAdded} créditos adicionados; saldo: ${result.creditsAfter}.`
+          : "Acesso manual concedido com sucesso.",
         projectId,
         appUserId,
         entitlementId,
         expiresAt: result.expiresAt,
         grantKind: grant.grantKind,
+        ...(contractOptions ? { contractAccess: result } : {}),
       },
     });
   } catch (error) {
